@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+# app-deploy  (root, via sudo: forced command of the sitesdeploy key used by GitHub Actions)
+#
+# stdin: a tar with
+#   image.tar.gz   docker save of sites-platform:<commit sha>, gzipped
+#   secrets.env    KEY=value lines, only the keys in SECRET_KEYS
+# Loads the image, installs the secrets, restarts the app and checks /health.
+# If the new release is not healthy, the previous image and secrets come back.
+# The key can only change the app's image and secrets: nginx, scripts and the
+# compose file are installed by install.sh (root, by hand).
+set -euo pipefail
+source /opt/sites-platform/lib/common.sh
+
+readonly SECRET_KEYS='MONGODB_URI|MONGODB_DB|ADMIN_USERNAME|ADMIN_PASSWORD_HASH|SESSION_SECRET|SITE_COOKIE_SECRET|LOG_LEVEL'
+readonly REQUIRED_KEYS=(MONGODB_URI ADMIN_PASSWORD_HASH SESSION_SECRET SITE_COOKIE_SECRET)
+readonly MAX_UPLOAD=$((1024 * 1024 * 1024))
+compose=(docker compose -p sites-platform -f /opt/sites-platform/compose.prod.yaml)
+
+exec {deploy_lock}>/run/lock/sites-platform-deploy.lock
+flock -w 600 "$deploy_lock" || die "otro despliegue sigue en curso"
+
+work=$(mktemp -d /var/tmp/sites-deploy.XXXXXX)
+trap 'rm -rf "$work"' EXIT
+head -c "$MAX_UPLOAD" | tar -x -C "$work" --no-same-owner --no-same-permissions -f - image.tar.gz secrets.env ||
+  die "no se pudo leer el paquete (se esperaba un tar con image.tar.gz y secrets.env)"
+
+# Secrets: only known keys, one line each, no control characters.
+while IFS= read -r line || [[ -n $line ]]; do
+  [[ -z $line ]] && continue
+  [[ $line =~ ^($SECRET_KEYS)=[^[:cntrl:]]*$ ]] || die "clave no permitida en secrets.env: ${line%%=*}"
+done <"$work/secrets.env"
+for key in "${REQUIRED_KEYS[@]}"; do
+  grep -q "^$key=." "$work/secrets.env" || die "falta $key en secrets.env (revisa los secrets de GitHub)"
+done
+
+loaded=$(gunzip -c "$work/image.tar.gz" | docker load) || die "docker load falló"
+image=$(sed -n 's/^Loaded image: //p' <<<"$loaded" | tail -n1)
+[[ $image =~ ^sites-platform:[a-f0-9]{7,40}$ ]] || die "imagen inesperada: ${image:-ninguna}"
+
+previous=$(cat "$SP_ETC/current-image" 2>/dev/null || true)
+[[ ! -s $SP_ETC/secrets.env ]] || cp -p "$SP_ETC/secrets.env" "$SP_ETC/secrets.env.previous"
+install -m 600 "$work/secrets.env" "$SP_ETC/secrets.env"
+
+start() { SITES_IMAGE=$1 "${compose[@]}" up -d --remove-orphans >&2; }
+healthy() {
+  local i
+  for i in $(seq 45); do
+    curl -fsS "http://127.0.0.1:$APP_PORT/health" >/dev/null 2>&1 && return 0
+    sleep 2
+  done
+  return 1
+}
+
+start "$image"
+if ! healthy; then
+  SITES_IMAGE=$image "${compose[@]}" logs --tail 60 app >&2 || true
+  if [[ -n $previous ]]; then
+    [[ ! -s $SP_ETC/secrets.env.previous ]] || mv -f "$SP_ETC/secrets.env.previous" "$SP_ETC/secrets.env"
+    start "$previous"
+    die "$image no respondió en /health; se restauró $previous"
+  fi
+  die "$image no respondió en /health"
+fi
+
+printf '%s\n' "$image" >"$SP_ETC/current-image"
+rm -f "$SP_ETC/secrets.env.previous"
+# Keep the running image and the previous one (for the next rollback).
+docker image ls sites-platform --format '{{.Repository}}:{{.Tag}}' |
+  grep -vxF -e "$image" -e "${previous:-none}" | xargs -r docker rmi >/dev/null 2>&1 || true
+printf 'ok %s\n' "$image"

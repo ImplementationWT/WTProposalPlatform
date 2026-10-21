@@ -1,6 +1,6 @@
 import type { IncomingMessage } from 'node:http'
 import type { FastifyInstance, FastifyReply } from 'fastify'
-import { config } from './config.js'
+import { config, RESERVED_NAMES } from './config.js'
 import { projects, visits, type ProjectDoc } from './db.js'
 import { safeEqual, siteToken, verifyPassword } from './password.js'
 import { versionDir } from './storage.js'
@@ -21,7 +21,8 @@ export function siteNameFromHost(host: string | undefined): string | null {
   const suffix = `.${config.sitesDomain}`
   if (!hostname.endsWith(suffix)) return null
   const name = hostname.slice(0, -suffix.length)
-  return SUBDOMAIN.test(name) ? name : null
+  // Reserved hosts (e.g. panel.<SITES_DOMAIN>) serve the app, not a site.
+  return SUBDOMAIN.test(name) && !RESERVED_NAMES.has(name) ? name : null
 }
 
 /** Fastify `rewriteUrl`: requests to a site host are routed under SITE_PREFIX. */

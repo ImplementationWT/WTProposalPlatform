@@ -1,5 +1,15 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { CheckCircle2Icon, CodeXmlIcon, CopyIcon, ExternalLinkIcon, FileIcon, UploadIcon, XIcon } from 'lucide-react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  CheckCircle2Icon,
+  CodeXmlIcon,
+  CopyIcon,
+  ExternalLinkIcon,
+  FileIcon,
+  Loader2Icon,
+  TriangleAlertIcon,
+  UploadIcon,
+  XIcon,
+} from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { CodeEditor } from '@/components/lazy'
@@ -181,7 +191,40 @@ export function UploadDialog({ initialSource, onClose }: { initialSource: Source
   )
 }
 
-function PublishedView({ project, onDone }: { project: Project; onDone: () => void }) {
+function PublishedView({ project: created, onDone }: { project: Project; onDone: () => void }) {
+  // The subdomain's certificate is issued after publishing: follow it until it is ready.
+  const live = useQuery({
+    queryKey: ['projects', 'live', ''],
+    queryFn: () => api.list('live', ''),
+    enabled: created.domain === 'pending',
+    refetchInterval: (query) => (query.state.data?.items.find((p) => p.id === created.id)?.domain === 'pending' ? 2000 : false),
+  })
+  const project = live.data?.items.find((p) => p.id === created.id) ?? created
+
+  if (project.domain === 'pending') {
+    return (
+      <div className="flex flex-col items-center gap-4 py-4 text-center">
+        <Loader2Icon className="size-12 animate-spin text-muted-foreground" />
+        <div>
+          <h2 className="text-lg font-semibold">Activando tu sitio…</h2>
+          <p className="text-sm text-muted-foreground">Estamos preparando el HTTPS de {project.url.replace(/^https?:\/\//, '')}. Tarda unos segundos.</p>
+        </div>
+      </div>
+    )
+  }
+  if (project.domain === 'error') {
+    return (
+      <div className="flex flex-col items-center gap-4 py-4 text-center">
+        <TriangleAlertIcon className="size-12 text-destructive" />
+        <div>
+          <h2 className="text-lg font-semibold">Los archivos se guardaron, pero el subdominio no se pudo activar</h2>
+          <p className="text-sm text-muted-foreground">Revisa los registros del servidor; se reintenta al reiniciarlo.</p>
+        </div>
+        <Button onClick={onDone}>Cerrar</Button>
+      </div>
+    )
+  }
+
   return (
     <div className="flex flex-col items-center gap-4 py-4 text-center">
       <CheckCircle2Icon className="size-12 text-emerald-500" />

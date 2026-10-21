@@ -2,8 +2,9 @@ import type { MultipartFile } from '@fastify/multipart'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { MongoServerError, ObjectId, type Filter } from 'mongodb'
 import { z } from 'zod'
-import { config, siteUrl } from './config.js'
+import { config, RESERVED_NAMES, siteUrl } from './config.js'
 import { projects, visits, type ProjectDoc, type ProjectStatus } from './db.js'
+import { pendingDomain, provisionDomain, provisioningEnabled, releaseDomain } from './domains.js'
 import { HttpError } from './errors.js'
 import { hashPassword } from './password.js'
 import {
@@ -19,14 +20,15 @@ import {
   type FileMap,
 } from './storage.js'
 
-const RESERVED_NAMES = new Set(['www', 'api', 'app', 'admin', 'mail', 'static', 'assets'])
+// <name>.<SITES_DOMAIN> must fit in the 64 characters of a certificate's common name.
+const NAME_MAX = Math.min(63, 63 - config.sitesDomain.length)
 
 const nameSchema = z
   .string()
   .trim()
   .toLowerCase()
   .min(3, 'Mínimo 3 caracteres')
-  .max(63, 'Máximo 63 caracteres')
+  .max(NAME_MAX, `Máximo ${NAME_MAX} caracteres`)
   .regex(/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/, 'Solo letras minúsculas, números y guiones (sin guion al inicio o final)')
   .refine((n) => !RESERVED_NAMES.has(n), 'Ese nombre está reservado')
 
@@ -50,6 +52,7 @@ function toDto(p: ProjectDoc) {
     files: p.files,
     totalSize: p.files.reduce((sum, f) => sum + f.size, 0),
     access: { mode: p.access.mode },
+    domain: p.domain?.status ?? (provisioningEnabled ? 'pending' : 'ready'),
     createdAt: p.createdAt,
     updatedAt: p.updatedAt,
     deletedAt: p.deletedAt ?? null,
@@ -170,6 +173,7 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
       homepage: pickHomepage(list.map((f) => f.path)),
       version,
       access: { mode: 'public' },
+      domain: pendingDomain(),
       createdAt: now,
       updatedAt: now,
     }
@@ -180,6 +184,7 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
       if (isDuplicateKey(err)) throw new HttpError(409, 'Ese nombre ya está en uso')
       throw err
     }
+    provisionDomain(doc)
     return reply.code(201).send(toDto(doc))
   })
 
@@ -218,6 +223,7 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
     if (body.name && body.name !== project.name) {
       if (await isNameTaken(body.name, project._id)) throw new HttpError(409, 'Ese nombre ya está en uso')
       set.name = body.name
+      set.domain = pendingDomain()
     }
     if (body.access?.mode === 'public') set.access = { mode: 'public' }
     if (body.access?.mode === 'password') {
@@ -232,6 +238,10 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
     try {
       const updated = await projects.findOneAndUpdate({ _id: project._id }, { $set: set }, { returnDocument: 'after' })
       if (!updated) throw new HttpError(404, 'Proyecto no encontrado')
+      if (set.name) {
+        provisionDomain(updated)
+        if (!(await isNameTaken(project.name))) releaseDomain(project.name)
+      }
       return toDto(updated)
     } catch (err) {
       if (isDuplicateKey(err)) throw new HttpError(409, 'Ese nombre ya está en uso')
@@ -249,6 +259,8 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
         : { $set: { status, updatedAt: new Date() }, $unset: { deletedAt: '' as const } }
     const updated = await projects.findOneAndUpdate({ _id: project._id }, update, { returnDocument: 'after' })
     if (!updated) throw new HttpError(404, 'Proyecto no encontrado')
+    // Retry a failed domain when the site goes back online.
+    if (updated.status === 'live' && updated.domain?.status === 'error') provisionDomain(updated)
     return toDto(updated)
   })
 
@@ -259,6 +271,7 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
     await projects.deleteOne({ _id: project._id })
     await visits.deleteMany({ projectId: project._id })
     await removeSite(project._id.toHexString())
+    releaseDomain(project.name)
     return reply.code(204).send()
   })
 

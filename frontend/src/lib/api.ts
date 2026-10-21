@@ -1,4 +1,6 @@
 export type ProjectStatus = 'live' | 'archived' | 'deleted'
+/** HTTPS certificate of the subdomain: issued in the background after publishing or renaming. */
+export type DomainStatus = 'pending' | 'ready' | 'error'
 
 export interface SiteFile {
   path: string
@@ -14,6 +16,7 @@ export interface Project {
   files: SiteFile[]
   totalSize: number
   access: { mode: 'public' | 'password' }
+  domain: DomainStatus
   createdAt: string
   updatedAt: string
   deletedAt: string | null
@@ -38,10 +41,21 @@ export interface Stats {
 
 export class ApiError extends Error {}
 
+export interface Session {
+  username: string
+}
+
+/** Called when the session expires mid-use (any 401 outside the login form). */
+let unauthorizedHandler = () => {}
+export const onUnauthorized = (handler: () => void) => {
+  unauthorizedHandler = handler
+}
+
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, init)
   if (res.status === 204) return undefined as T
   const body = await res.json().catch(() => ({}))
+  if (res.status === 401 && !url.startsWith('/api/auth/')) unauthorizedHandler()
   if (!res.ok) throw new ApiError(body.error ?? `Error ${res.status}`)
   return body as T
 }
@@ -65,6 +79,7 @@ function upload<T>(url: string, form: FormData, onProgress?: (p: number) => void
       } catch {
         // non-JSON error page (e.g. a proxy's 413)
       }
+      if (xhr.status === 401) unauthorizedHandler()
       if (xhr.status >= 200 && xhr.status < 300) resolve(body as T)
       else reject(new ApiError(body.error ?? (xhr.status === 413 ? 'El archivo es demasiado grande' : `Error ${xhr.status}`)))
     }
@@ -74,6 +89,13 @@ function upload<T>(url: string, form: FormData, onProgress?: (p: number) => void
 }
 
 export const api = {
+  /** Current session, or null when logged out. */
+  session: async (): Promise<Session | null> => {
+    const res = await fetch('/api/auth/session')
+    return res.ok ? res.json() : null
+  },
+  login: (username: string, password: string) => request<Session>('/api/auth/login', json('POST', { username, password })),
+  logout: () => request<void>('/api/auth/logout', { method: 'POST' }),
   config: () => request<AppConfig>('/api/config'),
 
   list: (status: ProjectStatus, q: string) =>

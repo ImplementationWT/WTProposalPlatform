@@ -2,6 +2,7 @@ import { MongoClient, type Collection, type ObjectId } from 'mongodb'
 import { config } from './config.js'
 
 export type ProjectStatus = 'live' | 'archived' | 'deleted'
+export type DomainStatus = 'pending' | 'ready' | 'error'
 
 export interface SiteFile {
   path: string
@@ -19,6 +20,8 @@ export interface ProjectDoc {
   // files writes a new version and then switches this pointer.
   version: string
   access: { mode: 'public' } | { mode: 'password'; passwordHash: string }
+  // HTTPS certificate + nginx server of <name>.<SITES_DOMAIN> (see domains.ts).
+  domain?: { status: DomainStatus; error?: string }
   createdAt: Date
   updatedAt: Date
   deletedAt?: Date

@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# site-release <name>  (root, via sudo from sites-dispatch)
+# Removes the nginx server and certificate of <name>.<SITES_DOMAIN>. Idempotent.
+set -euo pipefail
+source /opt/sites-platform/lib/common.sh
+
+[[ $# -eq 1 ]] || die "uso: site-release <nombre>"
+require_name "$1"
+take_lock
+
+host="$1.$SITES_DOMAIN"
+# The server goes first: nginx -t would fail while it points to a deleted certificate.
+remove_conf "$NGINX_DIR/site-$1.conf"
+if [[ -d $LIVE/$host ]]; then
+  certbot delete --cert-name "$host" --non-interactive >&2 || die "certbot no pudo borrar el certificado de $host"
+fi
+printf 'ok %s\n' "$host"

@@ -6,6 +6,7 @@ import fastifyMultipart from '@fastify/multipart'
 import fastifyStatic from '@fastify/static'
 import Fastify from 'fastify'
 import { ZodError } from 'zod'
+import { authRoutes, panelGuard } from './auth.js'
 import { config } from './config.js'
 import { HttpError } from './errors.js'
 import { projectRoutes } from './projects.js'
@@ -41,6 +42,8 @@ export async function buildApp() {
   })
 
   app.get('/health', async () => ({ ok: true }))
+  app.addHook('onRequest', panelGuard)
+  await app.register(authRoutes)
   await app.register(projectRoutes)
   await app.register(siteRoutes)
 

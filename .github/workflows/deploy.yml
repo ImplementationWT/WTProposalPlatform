@@ -1,0 +1,71 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Never two deploys at once; one in progress is not cancelled halfway.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  deploy:
+    name: Deploy a panel.sites.whatever.tech
+    needs: ci
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://panel.sites.whatever.tech
+    env:
+      IMAGE: sites-platform:${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build de la imagen
+        run: |
+          docker build -t "$IMAGE" .
+          docker save "$IMAGE" | gzip > image.tar.gz
+
+      - name: Generar secrets.env
+        env:
+          MONGODB_URI: ${{ secrets.MONGODB_URI }}
+          ADMIN_PASSWORD_HASH: ${{ secrets.ADMIN_PASSWORD_HASH }}
+          SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
+          SITE_COOKIE_SECRET: ${{ secrets.SITE_COOKIE_SECRET }}
+          ADMIN_USERNAME: ${{ vars.ADMIN_USERNAME || 'admin' }}
+          MONGODB_DB: ${{ vars.MONGODB_DB || 'sites_platform' }}
+        run: |
+          umask 077
+          # Literal KEY=value lines (the server rejects any other key).
+          for key in MONGODB_URI MONGODB_DB ADMIN_USERNAME ADMIN_PASSWORD_HASH SESSION_SECRET SITE_COOKIE_SECRET; do
+            printf '%s=%s\n' "$key" "${!key}"
+          done > secrets.env
+
+      - name: Configurar SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/id_ed25519 ~/.ssh/known_hosts
+
+      # The key's forced command (app-deploy) reads the package from stdin.
+      - name: Activar release
+        run: tar -cf - image.tar.gz secrets.env | ssh -o BatchMode=yes "sitesdeploy@${{ vars.SSH_HOST }}"
+
+      - name: Verificar https://panel.sites.whatever.tech/health
+        run: curl -fsS --retry 5 --retry-delay 3 --retry-all-errors https://panel.sites.whatever.tech/health
+
+      - name: Limpiar credenciales del runner
+        if: always()
+        run: rm -f secrets.env image.tar.gz ~/.ssh/id_ed25519

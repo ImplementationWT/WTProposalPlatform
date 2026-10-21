@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# sites-dispatch  (forced command of the sitesprov SSH key)
+#
+# The app may only ask, through SSH_ORIGINAL_COMMAND, for exactly:
+#   ensure <name>    certificate + nginx server of <name>.<SITES_DOMAIN>
+#   release <name>   remove them
+# Anything else is rejected. The name is validated here and again in the script.
+set -euo pipefail
+
+command=${SSH_ORIGINAL_COMMAND:-}
+if [[ ${#command} -le 80 && $command =~ ^(ensure|release)\ ([a-z0-9]([a-z0-9-]*[a-z0-9])?)$ ]]; then
+  exec sudo -n "/opt/sites-platform/bin/site-${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}"
+fi
+printf 'ERROR: comando no permitido\n' >&2
+exit 126

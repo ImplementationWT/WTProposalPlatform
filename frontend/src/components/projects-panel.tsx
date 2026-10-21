@@ -9,6 +9,7 @@ import {
   DownloadIcon,
   ExternalLinkIcon,
   FileCodeIcon,
+  Loader2Icon,
   LockIcon,
   MoreHorizontalIcon,
   PencilLineIcon,
@@ -64,6 +65,8 @@ export function ProjectsPanel({ onUpload }: { onUpload: (mode: 'file' | 'code') 
     queryKey: ['projects', status, q],
     queryFn: () => api.list(status, q),
     placeholderData: keepPreviousData,
+    // Until every new subdomain has its certificate.
+    refetchInterval: (query) => (query.state.data?.items.some((p) => p.domain === 'pending') ? 3000 : false),
   })
   const counts = list.data?.counts
 
@@ -327,6 +330,21 @@ function StatusBadge({ project }: { project: Project }) {
     return (
       <Badge variant="secondary" className="text-[11px]">
         {project.status === 'archived' ? 'Archivado' : 'Eliminado'}
+      </Badge>
+    )
+  }
+  if (project.domain === 'pending') {
+    return (
+      <Badge variant="secondary" className="gap-1 text-[11px]" title="Emitiendo el certificado HTTPS del subdominio">
+        <Loader2Icon className="size-3 animate-spin" />
+        Publicando
+      </Badge>
+    )
+  }
+  if (project.domain === 'error') {
+    return (
+      <Badge variant="destructive" className="text-[11px]" title="No se pudo activar el subdominio. Se reintenta al reiniciar el servidor o al restaurar el proyecto.">
+        Error HTTPS
       </Badge>
     )
   }
