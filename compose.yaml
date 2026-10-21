@@ -1,0 +1,11 @@
+# Local MongoDB for development:  npm run db:up
+services:
+  mongo:
+    image: mongo:8
+    ports:
+      - "127.0.0.1:${LOCAL_MONGO_PORT:-27017}:27017"
+    volumes:
+      - mongo-data:/data/db
+
+volumes:
+  mongo-data:
