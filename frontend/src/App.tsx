@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { LogOutIcon } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import { toast } from 'sonner'
 import { Eyebrow, Logo } from '@/components/brand'
 import { LoginPage } from '@/components/login-page'
 import { ProjectsPanel } from '@/components/projects-panel'
@@ -29,9 +30,12 @@ function Panel() {
   const logout = useMutation({
     mutationFn: api.logout,
     onSuccess: () => {
-      queryClient.clear()
+      // Flip the session first: App is subscribed to it and swaps to the login form. clear() would
+      // drop that query from under App without telling it, leaving the panel on screen.
       queryClient.setQueryData(['session'], null)
+      queryClient.removeQueries({ predicate: (query) => query.queryKey[0] !== 'session' })
     },
+    onError: (err) => toast.error(err.message),
   })
 
   return (
@@ -41,7 +45,7 @@ function Panel() {
           <a href="/" className="flex items-center gap-4">
             <Logo />
             <span className="hidden h-6 w-px bg-border sm:block" />
-            <span className="hidden text-sm text-muted-foreground sm:block">Propuestas</span>
+            <span className="hidden text-sm text-muted-foreground sm:block">Publicador de subdominios</span>
           </a>
           <div className="flex items-center gap-4">
             {config && (
@@ -61,10 +65,11 @@ function Panel() {
         <div data-robot-avoid className="w-fit">
           <Eyebrow>Whatever Tech</Eyebrow>
           <h1 className="mt-4 mb-3 text-4xl leading-[1.05] font-extrabold tracking-tight sm:text-5xl">
-            Tus propuestas, <span className="text-brand">publicadas.</span>
+            Nuestros proyectos, <span className="text-brand">en nuestro dominio.</span>
           </h1>
           <p className="mb-12 max-w-xl text-muted-foreground">
-            Sube el HTML de cada propuesta y compártela en su propio subdominio, con estadísticas de visitas y acceso privado.
+            Sube el HTML de cada proyecto y lo publicamos en su propio subdominio de Whatever Tech, listo para compartir con el
+            cliente, con estadísticas de visitas y acceso privado.
           </p>
         </div>
         <ProjectsPanel onUpload={setUpload} />

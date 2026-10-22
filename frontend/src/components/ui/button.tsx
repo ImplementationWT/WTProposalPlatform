@@ -10,13 +10,15 @@ const buttonVariants = cva(
       variant: {
         // No glow: a band of light sweeps across on hover (and snaps back unseen on leave).
         default:
-          "relative overflow-hidden bg-primary text-primary-foreground shadow-[inset_0_1px_0_oklch(1_0_0/0.22)] hover:bg-[color-mix(in_oklch,var(--primary),white_6%)] before:pointer-events-none before:absolute before:inset-y-0 before:-left-3/4 before:w-1/2 before:-skew-x-20 before:bg-linear-to-r before:from-transparent before:via-white/35 before:to-transparent before:transition-none before:duration-700 before:ease-out hover:before:left-[125%] hover:before:transition-[left]",
+          "relative overflow-hidden bg-primary text-primary-foreground shadow-[inset_0_1px_0_oklch(1_0_0/0.22)] hover:bg-[color-mix(in_oklch,var(--primary),white_6%)] before:pointer-events-none before:absolute before:inset-y-0 before:-left-3/4 before:w-1/2 before:-skew-x-20 before:bg-linear-to-r before:from-transparent before:via-white/45 before:to-transparent before:transition-none before:duration-600 before:ease-in-out hover:before:left-[125%] hover:before:transition-[left]",
         outline:
           "border-input bg-input/30 hover:border-brand/50 hover:bg-brand/10 hover:text-foreground hover:[&_svg]:text-brand aria-expanded:border-brand/50 aria-expanded:bg-brand/10",
         secondary:
           "bg-secondary text-secondary-foreground hover:bg-[color-mix(in_oklch,var(--secondary),var(--foreground)_5%)] aria-expanded:bg-secondary aria-expanded:text-secondary-foreground",
         ghost:
           "hover:bg-brand/10 hover:text-foreground hover:[&_svg]:text-brand aria-expanded:bg-brand/10 aria-expanded:text-foreground aria-expanded:[&_svg]:text-brand",
+        // Solid brand button with a scanner beam (styles in index.css).
+        scan: "btn-scan font-semibold text-white",
         destructive:
           "bg-destructive/10 text-destructive hover:bg-destructive/20 focus-visible:border-destructive/40 focus-visible:ring-destructive/20 dark:bg-destructive/20 dark:hover:bg-destructive/30 dark:focus-visible:ring-destructive/40",
         link: "text-primary underline-offset-4 hover:underline",

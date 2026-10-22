@@ -154,13 +154,14 @@ export function ProjectsPanel({ onUpload }: { onUpload: (mode: 'file' | 'code') 
         <div className="flex flex-wrap items-center justify-between gap-4">
           <h2 className="text-2xl font-bold tracking-tight">{TITLES[status]}</h2>
           {status === 'live' && (
-            <div className="flex">
-              <Button onClick={() => onUpload('file')} className="h-10 rounded-r-none pr-3 pl-5 text-[15px] font-semibold">
+            // Thin coral capsule around the split button: the page's main action, highlighted without a glow.
+            <div className="flex rounded-full bg-brand/[0.08] p-1 ring-1 ring-brand/40">
+              <Button variant="scan" onClick={() => onUpload('file')} className="h-10 rounded-r-none pr-3 pl-5 text-[15px]">
                 <CloudUploadIcon className="size-5" /> Subir archivo
               </Button>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button className="h-10 rounded-l-none border-l border-white/30 pr-3 pl-2" aria-label="Más opciones de publicación">
+                  <Button variant="scan" className="h-10 rounded-l-none border-l border-white/30 pr-3 pl-2 after:hidden" aria-label="Más opciones de publicación">
                     <ChevronDownIcon />
                   </Button>
                 </DropdownMenuTrigger>

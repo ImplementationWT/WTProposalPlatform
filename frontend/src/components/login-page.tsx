@@ -27,7 +27,7 @@ export function LoginPage() {
       <form data-surface onSubmit={submit} className="w-full max-w-sm space-y-6 rounded-3xl border bg-card p-8 shadow-2xl shadow-black/40 backdrop-blur">
         <Logo />
         <div className="space-y-2">
-          <Eyebrow>Plataforma de propuestas</Eyebrow>
+          <Eyebrow>Publicador de subdominios</Eyebrow>
           <h1 className="text-3xl font-extrabold tracking-tight">
             Bienvenido <span className="text-brand">de vuelta.</span>
           </h1>

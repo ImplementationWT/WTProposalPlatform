@@ -1,7 +1,7 @@
 import { createFluid } from './fluid'
 
-/** Cards, header, dialogs and menus: the nebula stops following the cursor over these. */
-export const WORK_ZONE = '[data-surface], [data-slot$="-overlay"], [data-slot$="-content"]'
+/** Cards, header, dialogs, menus and Will Doo's chat: the nebula stops following the cursor over these. */
+export const WORK_ZONE = '[data-surface], [data-will-doo], [data-slot$="-overlay"], [data-slot$="-content"]'
 
 export const prefersReducedMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches
 export const hasFinePointer = () => matchMedia('(pointer: fine)').matches
