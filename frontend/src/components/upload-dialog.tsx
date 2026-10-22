@@ -115,7 +115,7 @@ export function UploadDialog({ initialSource, onClose }: { initialSource: Source
                   onClick={() => setSource(id)}
                   className={cn(
                     'flex h-10 items-center justify-center gap-2 text-sm transition-colors not-first:border-l',
-                    source === id ? 'bg-muted font-medium' : 'text-muted-foreground hover:bg-muted/50',
+                    source === id ? 'bg-brand/15 font-medium text-brand' : 'text-muted-foreground hover:bg-brand/10 hover:text-foreground',
                   )}
                 >
                   <Icon className="size-4" /> {label}
@@ -149,7 +149,7 @@ export function UploadDialog({ initialSource, onClose }: { initialSource: Source
                       <Button
                         type="button"
                         onClick={openPicker}
-                        className="h-10 w-48 bg-linear-to-r from-fuchsia-500 to-blue-600 text-[15px] font-semibold text-white hover:opacity-90"
+                        className="h-10 w-48 text-[15px] font-semibold"
                       >
                         Subir archivo
                       </Button>
@@ -227,12 +227,12 @@ function PublishedView({ project: created, onDone }: { project: Project; onDone:
 
   return (
     <div className="flex flex-col items-center gap-4 py-4 text-center">
-      <CheckCircle2Icon className="size-12 text-emerald-500" />
+      <CheckCircle2Icon className="size-12 text-emerald-400" />
       <div>
         <h2 className="text-lg font-semibold">¡Tu sitio está publicado!</h2>
         <p className="text-sm text-muted-foreground">Ya puedes compartir el enlace.</p>
       </div>
-      <a href={project.url} target="_blank" rel="noreferrer" className="break-all text-primary underline underline-offset-2">
+      <a href={project.url} target="_blank" rel="noreferrer" className="break-all text-brand underline underline-offset-4">
         {project.url.replace(/^https?:\/\//, '')}
       </a>
       <div className="flex gap-2">

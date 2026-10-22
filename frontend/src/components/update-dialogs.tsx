@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ChevronRightIcon, FileIcon, Loader2Icon, PencilLineIcon, PlusIcon, SettingsIcon, UploadIcon, XIcon } from 'lucide-react'
+import { ChevronRightIcon, FileIcon, Loader2Icon, LockIcon, PencilLineIcon, PlusIcon, SettingsIcon, UploadIcon, XIcon } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { CodeEditor } from '@/components/lazy'
@@ -57,14 +57,14 @@ export function UpdateChooser({ project, onClose, onPick }: DialogProps & { onPi
               key={view}
               type="button"
               onClick={() => onPick(view)}
-              className="flex w-full items-center gap-4 rounded-xl border p-5 text-left transition-colors hover:bg-muted/60"
+              className="group flex w-full items-center gap-4 rounded-xl border p-5 text-left transition-colors hover:border-brand/40 hover:bg-brand/[0.07]"
             >
-              <Icon className="size-6 shrink-0" strokeWidth={1.5} />
+              <Icon className="size-6 shrink-0 transition-colors group-hover:text-brand" strokeWidth={1.5} />
               <span className="flex-1">
                 <span className="block font-semibold">{title}</span>
                 <span className="block text-sm text-muted-foreground">{text}</span>
               </span>
-              <ChevronRightIcon className="size-5" />
+              <ChevronRightIcon className="size-5 transition-transform group-hover:translate-x-1 group-hover:text-brand" />
             </button>
           ))}
         </div>
@@ -345,6 +345,154 @@ export function EditHtmlDialog({ project, onClose }: DialogProps) {
             {save.isPending ? 'Publicando…' : 'Guardar y publicar'}
           </Button>
         </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+/** Applies the same files or access setting to several projects; names and HTML stay per project. */
+export function BulkUpdateDialog({ projects, onClose, onDone }: { projects: Project[]; onClose: () => void; onDone: () => void }) {
+  const [tab, setTab] = useState<'files' | 'access'>('files')
+  const [pending, setPending] = useState<{ mode: 'replace' | 'add'; files: File[] } | null>(null)
+  const [mode, setMode] = useState<'public' | 'password'>('public')
+  const [password, setPassword] = useState('')
+  const [done, setDone] = useState(0)
+  const queryClient = useQueryClient()
+
+  // Projects already behind a password may keep theirs; any public one needs a new password.
+  const needsPassword = mode === 'password' && projects.some((p) => p.access.mode !== 'password')
+  const ready = tab === 'files' ? !!pending : !needsPassword || password.length >= 4
+
+  const save = useMutation({
+    mutationFn: async () => {
+      let failed = 0
+      setDone(0)
+      // One at a time: every upload republishes a whole site.
+      for (const p of projects) {
+        try {
+          if (tab === 'files') await api.uploadFiles(p.id, pending!.mode, pending!.files)
+          else await api.update(p.id, { access: mode === 'public' ? { mode } : { mode, ...(password ? { password } : {}) } })
+        } catch {
+          failed++
+        }
+        setDone((d) => d + 1)
+      }
+      return failed
+    },
+    onSuccess: (failed) => {
+      queryClient.invalidateQueries({ queryKey: ['projects'] })
+      if (failed) toast.error(`${failed} de ${projects.length} proyectos no se pudieron actualizar`)
+      else toast.success(projects.length === 1 ? 'Proyecto actualizado' : `${projects.length} proyectos actualizados`)
+      onDone()
+    },
+  })
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && !save.isPending && onClose()}>
+      <DialogContent className="sm:max-w-xl">
+        <DialogHeader>
+          <DialogTitle className="text-xl">Actualizar {projects.length} proyectos</DialogTitle>
+          <DialogDescription className="flex flex-wrap gap-1.5 pt-1">
+            {projects.slice(0, 5).map((p) => (
+              <Badge key={p.id} variant="secondary">
+                {p.name}
+              </Badge>
+            ))}
+            {projects.length > 5 && <Badge variant="secondary">+{projects.length - 5}</Badge>}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="grid grid-cols-2 overflow-hidden rounded-full border p-1" role="tablist">
+          {(
+            [
+              { id: 'files', label: 'Archivos', icon: UploadIcon },
+              { id: 'access', label: 'Acceso', icon: LockIcon },
+            ] as const
+          ).map(({ id, label, icon: Icon }) => (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              aria-selected={tab === id}
+              disabled={save.isPending}
+              onClick={() => setTab(id)}
+              className={cn(
+                'flex h-9 items-center justify-center gap-2 rounded-full text-sm transition-colors',
+                tab === id ? 'bg-brand/15 font-medium text-brand' : 'text-muted-foreground hover:bg-brand/10 hover:text-foreground',
+              )}
+            >
+              <Icon className="size-4" /> {label}
+            </button>
+          ))}
+        </div>
+
+        {tab === 'files' ? (
+          pending ? (
+            <div className="space-y-2 rounded-xl border bg-muted/30 p-4">
+              <p className="text-sm font-medium">
+                {pending.mode === 'replace' ? 'En cada proyecto se reemplazarán todos los archivos por:' : 'Se añadirán (o sobrescribirán) en cada proyecto:'}
+              </p>
+              <ul className="max-h-40 space-y-1 overflow-auto">
+                {pending.files.map((f) => (
+                  <li key={f.name} className="flex items-center gap-2 text-sm">
+                    <FileIcon className="size-4 text-primary" />
+                    <span className="truncate">{f.name}</span>
+                    <span className="ml-auto text-xs text-muted-foreground">{formatBytes(f.size)}</span>
+                  </li>
+                ))}
+              </ul>
+              <Button variant="ghost" size="sm" onClick={() => setPending(null)} disabled={save.isPending}>
+                <XIcon /> Cancelar selección
+              </Button>
+            </div>
+          ) : (
+            <>
+              <Dropzone onFiles={(files) => setPending({ mode: 'replace', files })} className="p-0">
+                {(open) => (
+                  <button type="button" onClick={open} className="flex h-28 w-full flex-col items-center justify-center gap-1">
+                    <span className="flex items-center gap-2 text-lg font-semibold">
+                      <UploadIcon className="size-5" /> Reemplazar archivo
+                    </span>
+                    <span className="text-xs text-muted-foreground">Un .zip se descomprime y reemplaza cada sitio completo</span>
+                  </button>
+                )}
+              </Dropzone>
+              <Dropzone multiple onFiles={(files) => setPending({ mode: 'add', files })} className="border-solid border-border bg-transparent">
+                {(open) => (
+                  <button type="button" onClick={open} className="flex h-10 w-full items-center justify-center gap-2 text-sm">
+                    <PlusIcon className="size-4" /> Añadir archivos a todos
+                  </button>
+                )}
+              </Dropzone>
+            </>
+          )
+        ) : (
+          <div className="space-y-2">
+            <Label>Acceso</Label>
+            <Select value={mode} onValueChange={(v) => setMode(v as typeof mode)}>
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="public">Público (sin restricciones)</SelectItem>
+                <SelectItem value="password">Protegido con contraseña</SelectItem>
+              </SelectContent>
+            </Select>
+            {mode === 'password' && (
+              <Input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder={needsPassword ? 'Contraseña para todos (mín. 4 caracteres)' : 'Nueva contraseña (vacío = mantener la de cada uno)'}
+                autoComplete="new-password"
+              />
+            )}
+          </div>
+        )}
+
+        <Button className="h-11 w-full text-[15px] font-semibold" disabled={!ready || save.isPending} onClick={() => save.mutate()}>
+          {save.isPending ? `Actualizando ${done}/${projects.length}…` : `Aplicar a ${projects.length} proyectos`}
+        </Button>
       </DialogContent>
     </Dialog>
   )

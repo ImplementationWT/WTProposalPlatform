@@ -29,7 +29,7 @@ export function Dropzone({ onFiles, multiple, className, children }: Props) {
         if (files.length) onFiles(multiple ? files : files.slice(0, 1))
       }}
       className={cn(
-        'rounded-xl border-2 border-dashed border-fuchsia-300 bg-muted/40 transition-colors dark:border-fuchsia-500/50',
+        'rounded-2xl border-2 border-dashed border-brand/35 bg-muted/30 transition-colors hover:border-brand/70 hover:bg-brand/[0.05]',
         over && 'border-primary bg-primary/5',
         className,
       )}

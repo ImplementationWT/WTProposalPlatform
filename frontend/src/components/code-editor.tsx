@@ -28,6 +28,7 @@ export function CodeEditor({ value, onChange, path = 'index.html', height = '100
       extensions={extensions}
       height={height}
       className={className}
+      theme="dark"
       basicSetup={{ foldGutter: true, highlightActiveLine: true }}
     />
   )

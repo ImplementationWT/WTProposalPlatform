@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { LogOutIcon, ZapIcon } from 'lucide-react'
+import { LogOutIcon } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import { Eyebrow, Logo } from '@/components/brand'
 import { LoginPage } from '@/components/login-page'
 import { ProjectsPanel } from '@/components/projects-panel'
 import { Button } from '@/components/ui/button'
@@ -34,12 +35,13 @@ function Panel() {
   })
 
   return (
-    <div className="min-h-svh bg-muted/40 pb-16">
-      <header className="mx-auto max-w-7xl px-4 pt-4">
-        <div className="flex h-16 items-center justify-between gap-4 rounded-2xl bg-card px-6 shadow-xs">
-          <a href="/" className="flex items-center gap-1 text-xl font-semibold tracking-tight">
-            <ZapIcon className="size-5 fill-violet-600 text-violet-600" />
-            propuestas<span className="text-muted-foreground">.host</span>
+    <div className="min-h-svh pb-28">
+      <header data-surface className="sticky top-0 z-20 border-b bg-background/70 backdrop-blur-md">
+        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-4 px-4 sm:px-6">
+          <a href="/" className="flex items-center gap-4">
+            <Logo />
+            <span className="hidden h-6 w-px bg-border sm:block" />
+            <span className="hidden text-sm text-muted-foreground sm:block">Propuestas</span>
           </a>
           <div className="flex items-center gap-4">
             {config && (
@@ -47,15 +49,24 @@ function Panel() {
                 Sitios en <span className="font-medium text-foreground">nombre{config.sitesSuffix}</span>
               </span>
             )}
-            <Button variant="ghost" size="sm" onClick={() => logout.mutate()} disabled={logout.isPending}>
+            <Button variant="outline" size="sm" className="px-3" onClick={() => logout.mutate()} disabled={logout.isPending}>
               <LogOutIcon /> Salir
             </Button>
           </div>
         </div>
       </header>
 
-      <main className="mx-auto mt-12 max-w-5xl px-4">
-        <h1 className="mb-10 text-2xl font-semibold">Mis proyectos</h1>
+      <main className="mx-auto mt-14 max-w-5xl px-4">
+        {/* Will Doo keeps clear of the heading */}
+        <div data-robot-avoid className="w-fit">
+          <Eyebrow>Whatever Tech</Eyebrow>
+          <h1 className="mt-4 mb-3 text-4xl leading-[1.05] font-extrabold tracking-tight sm:text-5xl">
+            Tus propuestas, <span className="text-brand">publicadas.</span>
+          </h1>
+          <p className="mb-12 max-w-xl text-muted-foreground">
+            Sube el HTML de cada propuesta y compártela en su propio subdominio, con estadísticas de visitas y acceso privado.
+          </p>
+        </div>
         <ProjectsPanel onUpload={setUpload} />
       </main>
 

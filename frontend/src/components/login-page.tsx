@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { Loader2Icon, ZapIcon } from 'lucide-react'
+import { Loader2Icon } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
+import { Eyebrow, Logo } from '@/components/brand'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -22,11 +23,14 @@ export function LoginPage() {
   }
 
   return (
-    <div className="grid min-h-svh place-items-center bg-muted/40 px-4">
-      <form onSubmit={submit} className="w-full max-w-sm space-y-6 rounded-2xl border bg-card p-8 shadow-xs">
-        <div className="flex items-center justify-center gap-1 text-xl font-semibold tracking-tight">
-          <ZapIcon className="size-5 fill-violet-600 text-violet-600" />
-          propuestas<span className="text-muted-foreground">.host</span>
+    <div className="grid min-h-svh place-items-center px-4">
+      <form data-surface onSubmit={submit} className="w-full max-w-sm space-y-6 rounded-3xl border bg-card p-8 shadow-2xl shadow-black/40 backdrop-blur">
+        <Logo />
+        <div className="space-y-2">
+          <Eyebrow>Plataforma de propuestas</Eyebrow>
+          <h1 className="text-3xl font-extrabold tracking-tight">
+            Bienvenido <span className="text-brand">de vuelta.</span>
+          </h1>
         </div>
         <div className="space-y-2">
           <Label htmlFor="username">Usuario</Label>
@@ -44,7 +48,7 @@ export function LoginPage() {
           />
         </div>
         {login.error && <p className="text-sm text-destructive">{login.error.message}</p>}
-        <Button type="submit" className="w-full" disabled={login.isPending}>
+        <Button type="submit" className="h-11 w-full text-[15px] font-semibold" disabled={login.isPending}>
           {login.isPending && <Loader2Icon className="animate-spin" />}
           Entrar
         </Button>

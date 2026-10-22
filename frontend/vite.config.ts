@@ -10,6 +10,8 @@ export default defineConfig({
     alias: { '@': path.resolve(import.meta.dirname, './src') },
   },
   server: {
-    proxy: { '/api': 'http://localhost:3000' },
+    // Keep the browser's Host so the API's same-origin check (backend/src/auth.ts)
+    // matches the Origin header; the string shorthand sets changeOrigin: true.
+    proxy: { '/api': { target: 'http://localhost:3000', changeOrigin: false } },
   },
 })

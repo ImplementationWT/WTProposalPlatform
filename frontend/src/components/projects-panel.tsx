@@ -18,6 +18,7 @@ import {
   SettingsIcon,
   Trash2Icon,
   UndoIcon,
+  XIcon,
 } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import { toast } from 'sonner'
@@ -34,6 +35,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -44,7 +46,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { CustomizeDialog, EditHtmlDialog, UpdateChooser, UpdateFilesDialog, type UpdateView } from '@/components/update-dialogs'
+import { BulkUpdateDialog, CustomizeDialog, EditHtmlDialog, UpdateChooser, UpdateFilesDialog, type UpdateView } from '@/components/update-dialogs'
 import { api, type Project, type ProjectStatus } from '@/lib/api'
 import { formatDate } from '@/lib/format'
 import { useDebounced } from '@/lib/hooks'
@@ -54,11 +56,17 @@ type ActiveDialog = { project: Project; view: 'chooser' | UpdateView | 'stats' |
 
 const TITLES: Record<ProjectStatus, string> = { live: 'Proyectos activos', archived: 'Archivados', deleted: 'Papelera' }
 
+const NO_SELECTION = new Set<string>()
+
+/** "1 proyecto archivado" / "3 proyectos archivados" */
+const countLabel = (n: number, done: string) => (n === 1 ? `1 proyecto ${done}` : `${n} proyectos ${done.replace(/^(\S+)/, '$1s')}`)
+
 export function ProjectsPanel({ onUpload }: { onUpload: (mode: 'file' | 'code') => void }) {
   const [status, setStatus] = useState<ProjectStatus>('live')
   const [search, setSearch] = useState('')
   const q = useDebounced(search.trim(), 250)
   const [active, setActive] = useState<ActiveDialog | null>(null)
+  const [bulkDialog, setBulkDialog] = useState<'update' | 'purge' | null>(null)
   const queryClient = useQueryClient()
 
   const list = useQuery({
@@ -69,6 +77,38 @@ export function ProjectsPanel({ onUpload }: { onUpload: (mode: 'file' | 'code') 
     refetchInterval: (query) => (query.state.data?.items.some((p) => p.domain === 'pending') ? 3000 : false),
   })
   const counts = list.data?.counts
+  const items = list.data?.items ?? []
+
+  // A selection belongs to one view: switching tab or search starts over.
+  const scope = `${status}:${q}`
+  const [selection, setSelection] = useState({ scope, ids: NO_SELECTION })
+  const selectedIds = selection.scope === scope ? selection.ids : NO_SELECTION
+  const selected = items.filter((p) => selectedIds.has(p.id))
+  const allSelected = items.length > 0 && selected.length === items.length
+  const clearSelection = () => setSelection({ scope, ids: NO_SELECTION })
+  const toggle = (id: string, on: boolean) => {
+    const ids = new Set(selectedIds)
+    if (on) ids.add(id)
+    else ids.delete(id)
+    setSelection({ scope, ids })
+  }
+  const toggleAll = (on: boolean) => setSelection({ scope, ids: on ? new Set(items.map((p) => p.id)) : NO_SELECTION })
+
+  const bulk = useMutation({
+    mutationFn: async ({ ids, run }: { ids: string[]; run: (id: string) => Promise<unknown>; done: string }) => {
+      const results = await Promise.allSettled(ids.map(run))
+      return results.filter((r) => r.status === 'rejected').length
+    },
+    onSuccess: (failed, { ids, done }) => {
+      queryClient.invalidateQueries({ queryKey: ['projects'] })
+      clearSelection()
+      setBulkDialog(null)
+      if (failed) toast.error(`${failed} de ${ids.length} proyectos no se pudieron procesar`)
+      else toast.success(countLabel(ids.length, done))
+    },
+  })
+  const bulkStatus = (to: ProjectStatus, done: string) =>
+    bulk.mutate({ ids: selected.map((p) => p.id), run: (id) => api.setStatus(id, to), done })
 
   const changeStatus = useMutation({
     mutationFn: ({ id, to }: { id: string; to: ProjectStatus; message: string }) => api.setStatus(id, to),
@@ -93,13 +133,14 @@ export function ProjectsPanel({ onUpload }: { onUpload: (mode: 'file' | 'code') 
   const close = () => setActive(null)
 
   return (
-    <section>
+    <section data-surface>
       {/* Folder-style tabs: active projects on the left, archive and trash on the right */}
       <div className="flex items-end justify-between px-1">
         <FolderTab active={status === 'live'} onClick={() => setStatus('live')}>
           Todos <CountPill n={counts?.live} />
         </FolderTab>
-        <div className="flex gap-1 pb-1">
+        {/* Glass pill so the icons hold up against the nebula drifting behind them */}
+        <div className="mb-1.5 flex gap-0.5 rounded-full border bg-card p-1 shadow-lg shadow-black/40 backdrop-blur-md">
           <ViewIcon label={`Archivados (${counts?.archived ?? 0})`} active={status === 'archived'} onClick={() => setStatus('archived')}>
             <ArchiveIcon />
           </ViewIcon>
@@ -109,17 +150,17 @@ export function ProjectsPanel({ onUpload }: { onUpload: (mode: 'file' | 'code') 
         </div>
       </div>
 
-      <div className={cn('rounded-2xl border bg-card p-4 shadow-xs sm:p-8', status === 'live' && 'rounded-tl-none')}>
+      <div className={cn('rounded-3xl border bg-card p-4 shadow-2xl shadow-black/30 backdrop-blur sm:p-8', status === 'live' && 'rounded-tl-none')}>
         <div className="flex flex-wrap items-center justify-between gap-4">
-          <h2 className="text-2xl font-medium">{TITLES[status]}</h2>
+          <h2 className="text-2xl font-bold tracking-tight">{TITLES[status]}</h2>
           {status === 'live' && (
             <div className="flex">
-              <Button onClick={() => onUpload('file')} className="h-10 rounded-r-none px-4 text-[15px]">
+              <Button onClick={() => onUpload('file')} className="h-10 rounded-r-none pr-3 pl-5 text-[15px] font-semibold">
                 <CloudUploadIcon className="size-5" /> Subir archivo
               </Button>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button className="h-10 rounded-l-none border-l border-white/30 px-2" aria-label="Más opciones de publicación">
+                  <Button className="h-10 rounded-l-none border-l border-white/30 pr-3 pl-2" aria-label="Más opciones de publicación">
                     <ChevronDownIcon />
                   </Button>
                 </DropdownMenuTrigger>
@@ -136,7 +177,7 @@ export function ProjectsPanel({ onUpload }: { onUpload: (mode: 'file' | 'code') 
           )}
         </div>
 
-        <label className="mt-6 flex max-w-md items-center gap-2 border-b pb-2 text-muted-foreground focus-within:border-primary">
+        <label className="mt-6 flex h-10 max-w-md items-center gap-2 rounded-full border bg-background/50 px-4 text-muted-foreground transition-colors focus-within:border-primary">
           <SearchIcon className="size-4" />
           <input
             value={search}
@@ -146,28 +187,47 @@ export function ProjectsPanel({ onUpload }: { onUpload: (mode: 'file' | 'code') 
           />
         </label>
 
-        <div className="mt-6 overflow-hidden rounded-xl">
+        <div className="mt-6 overflow-hidden rounded-2xl border">
           <Table>
-            <TableHeader className="bg-muted/60">
+            <TableHeader className="bg-muted/50">
               <TableRow className="border-0 hover:bg-transparent">
-                <TableHead className="h-12 w-24 pl-4 text-xs">Estado</TableHead>
-                <TableHead className="text-xs">Proyecto</TableHead>
-                <TableHead className="hidden w-32 text-xs md:table-cell">{status === 'deleted' ? 'Eliminado' : 'Modificado'}</TableHead>
-                <TableHead className="w-12 pr-4 text-right text-xs sm:w-56 sm:text-center">Acciones</TableHead>
+                <TableHead className="h-11 w-11 pr-0 pl-4">
+                  <Checkbox
+                    aria-label="Seleccionar todos"
+                    disabled={items.length === 0}
+                    checked={allSelected ? true : selected.length > 0 ? 'indeterminate' : false}
+                    onCheckedChange={(c) => toggleAll(c === true)}
+                  />
+                </TableHead>
+                <TableHead className="h-11 w-24 font-mono text-[11px] tracking-widest text-muted-foreground uppercase">Estado</TableHead>
+                <TableHead className="font-mono text-[11px] tracking-widest text-muted-foreground uppercase">Proyecto</TableHead>
+                <TableHead className="hidden w-32 font-mono text-[11px] tracking-widest text-muted-foreground uppercase md:table-cell">{status === 'deleted' ? 'Eliminado' : 'Modificado'}</TableHead>
+                <TableHead className="w-12 pr-4 text-right font-mono text-[11px] tracking-widest text-muted-foreground uppercase sm:w-56 sm:text-center">Acciones</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {list.isLoading &&
                 Array.from({ length: 4 }, (_, i) => (
                   <TableRow key={i} className="border-0">
-                    <TableCell colSpan={4} className="py-4">
+                    <TableCell colSpan={5} className="py-4">
                       <Skeleton className="h-8 w-full" />
                     </TableCell>
                   </TableRow>
                 ))}
-              {list.data?.items.map((project) => (
-                <TableRow key={project.id} className="h-[75px] border-0 even:bg-muted/40">
-                  <TableCell className="pl-4">
+              {items.map((project) => (
+                <TableRow
+                  key={project.id}
+                  data-state={selectedIds.has(project.id) ? 'selected' : undefined}
+                  className="h-[75px] border-t border-border/60 transition-[background-color,box-shadow] hover:bg-transparent hover:bg-linear-to-r hover:from-brand/[0.09] hover:to-transparent hover:shadow-[inset_2px_0_0_var(--brand)] data-[state=selected]:bg-brand/[0.07] data-[state=selected]:shadow-[inset_2px_0_0_var(--brand)]"
+                >
+                  <TableCell className="pr-0 pl-4">
+                    <Checkbox
+                      aria-label={`Seleccionar ${project.name}`}
+                      checked={selectedIds.has(project.id)}
+                      onCheckedChange={(c) => toggle(project.id, c === true)}
+                    />
+                  </TableCell>
+                  <TableCell>
                     <StatusBadge project={project} />
                   </TableCell>
                   <TableCell className="max-w-0">
@@ -177,10 +237,10 @@ export function ProjectsPanel({ onUpload }: { onUpload: (mode: 'file' | 'code') 
                       rel="noreferrer"
                       className={cn(
                         'flex items-center gap-2 truncate text-[15px]',
-                        project.status === 'live' ? 'text-primary underline underline-offset-2' : 'text-muted-foreground',
+                        project.status === 'live' ? 'group/link text-foreground underline decoration-brand/50 underline-offset-4 transition-colors hover:text-brand hover:decoration-brand' : 'text-muted-foreground',
                       )}
                     >
-                      <FileCodeIcon className="size-4 shrink-0 text-muted-foreground" />
+                      <FileCodeIcon className="size-4 shrink-0 text-muted-foreground transition-colors group-hover/link:text-brand" />
                       <span className="truncate">{project.url.replace(/^https?:\/\//, '')}</span>
                     </a>
                   </TableCell>
@@ -240,6 +300,73 @@ export function ProjectsPanel({ onUpload }: { onUpload: (mode: 'file' | 'code') 
               onClick={(e) => {
                 e.preventDefault()
                 if (active) purge.mutate(active.project.id)
+              }}
+            >
+              Eliminar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {selected.length > 0 && (
+        <BulkBar count={selected.length} onClear={clearSelection} busy={bulk.isPending}>
+          {status === 'live' && (
+            <Button variant="ghost" size="sm" onClick={() => setBulkDialog('update')}>
+              <PencilLineIcon /> Actualizar
+            </Button>
+          )}
+          {status === 'live' && (
+            <Button variant="ghost" size="sm" onClick={() => bulkStatus('archived', 'archivado')}>
+              <ArchiveIcon /> Archivar
+            </Button>
+          )}
+          {status === 'archived' && (
+            <Button variant="ghost" size="sm" onClick={() => bulkStatus('live', 'publicado')}>
+              <ArchiveRestoreIcon /> Desarchivar
+            </Button>
+          )}
+          {status === 'deleted' ? (
+            <>
+              <Button variant="ghost" size="sm" onClick={() => bulkStatus('live', 'restaurado')}>
+                <UndoIcon /> Restaurar
+              </Button>
+              <Button variant="destructive" size="sm" onClick={() => setBulkDialog('purge')}>
+                <Trash2Icon /> Eliminar definitivamente
+              </Button>
+            </>
+          ) : (
+            <Button variant="destructive" size="sm" onClick={() => bulkStatus('deleted', 'movido a la papelera')}>
+              <Trash2Icon /> Papelera
+            </Button>
+          )}
+        </BulkBar>
+      )}
+      {bulkDialog === 'update' && (
+        <BulkUpdateDialog
+          projects={selected}
+          onClose={() => setBulkDialog(null)}
+          onDone={() => {
+            clearSelection()
+            setBulkDialog(null)
+          }}
+        />
+      )}
+      <AlertDialog open={bulkDialog === 'purge'} onOpenChange={(o) => !o && setBulkDialog(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Eliminar {selected.length} proyectos definitivamente?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Se borrarán sus archivos y estadísticas y los nombres quedarán libres. No se puede deshacer.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={bulk.isPending}
+              onClick={(e) => {
+                e.preventDefault()
+                bulk.mutate({ ids: selected.map((p) => p.id), run: api.remove, done: 'eliminado' })
               }}
             >
               Eliminar
@@ -325,6 +452,35 @@ function RowMenu({
   )
 }
 
+/** Floating glass bar with the actions for the selected rows. */
+function BulkBar({ count, busy, onClear, children }: { count: number; busy: boolean; onClear: () => void; children: ReactNode }) {
+  return (
+    <div className="pointer-events-none fixed inset-x-0 bottom-6 z-40 flex justify-center px-4">
+      <div
+        role="toolbar"
+        aria-label="Acciones para los proyectos seleccionados"
+        className="pointer-events-auto flex animate-in items-center gap-1 rounded-full border border-brand/30 bg-popover/90 p-1.5 pl-3 shadow-2xl shadow-black/60 backdrop-blur-md duration-300 fade-in slide-in-from-bottom-4"
+      >
+        <span className="mr-1 flex items-center gap-2 text-sm font-medium whitespace-nowrap">
+          {busy ? (
+            <Loader2Icon className="size-5 animate-spin text-brand" />
+          ) : (
+            <span className="grid size-6 place-content-center rounded-full bg-brand text-xs font-bold tabular-nums text-primary-foreground">{count}</span>
+          )}
+          <span className="hidden sm:inline">{count === 1 ? 'seleccionado' : 'seleccionados'}</span>
+        </span>
+        <span className="mx-1 h-5 w-px bg-border" />
+        <fieldset disabled={busy} className="contents">
+          {children}
+        </fieldset>
+        <IconAction label="Quitar selección" onClick={onClear}>
+          <XIcon />
+        </IconAction>
+      </div>
+    </div>
+  )
+}
+
 function StatusBadge({ project }: { project: Project }) {
   if (project.status !== 'live') {
     return (
@@ -370,8 +526,8 @@ function FolderTab({ active, onClick, children }: { active: boolean; onClick: ()
       type="button"
       onClick={onClick}
       className={cn(
-        'relative -mb-px flex items-center gap-2 rounded-t-xl border border-b-0 px-5 py-2.5 text-sm',
-        active ? 'z-10 bg-card' : 'border-transparent text-muted-foreground hover:text-foreground',
+        'relative -mb-px flex items-center gap-2 rounded-t-2xl border border-b-0 px-5 py-2.5 text-sm font-medium',
+        active ? 'z-10 bg-card backdrop-blur' : 'border-transparent text-muted-foreground hover:text-foreground',
       )}
     >
       {children}
@@ -380,14 +536,14 @@ function FolderTab({ active, onClick, children }: { active: boolean; onClick: ()
 }
 
 const CountPill = ({ n }: { n?: number }) => (
-  <span className="rounded-md bg-muted px-2 py-0.5 text-xs tabular-nums text-muted-foreground">{n ?? '·'}</span>
+  <span className="rounded-full bg-brand/15 px-2 py-0.5 text-xs font-semibold tabular-nums text-brand">{n ?? '·'}</span>
 )
 
 function ViewIcon({ label, active, onClick, children }: { label: string; active: boolean; onClick: () => void; children: ReactNode }) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <Button variant="ghost" size="icon" aria-label={label} onClick={onClick} className={cn('text-muted-foreground', active && 'bg-muted text-foreground')}>
+        <Button variant="ghost" size="icon" aria-label={label} onClick={onClick} className={cn('text-foreground/75 hover:text-foreground', active && 'bg-brand/15 text-brand hover:bg-brand/20 hover:text-brand')}>
           {children}
         </Button>
       </TooltipTrigger>
@@ -415,9 +571,9 @@ function EmptyState({ status, searching, onUpload }: { status: ProjectStatus; se
   if (status === 'deleted') return <p className="py-16 text-center text-sm text-muted-foreground">La papelera está vacía.</p>
   return (
     <div className="flex flex-col items-center gap-3 py-16 text-center">
-      <CloudUploadIcon className="size-10 text-muted-foreground" strokeWidth={1.5} />
+      <CloudUploadIcon className="size-10 text-brand" strokeWidth={1.5} />
       <p className="text-sm text-muted-foreground">Aún no has publicado nada. Sube un .zip o un archivo HTML.</p>
-      <Button onClick={onUpload}>Publicar mi primer sitio</Button>
+      <Button onClick={onUpload} className="mt-2 h-10 px-5 font-semibold">Publicar mi primer sitio</Button>
     </div>
   )
 }

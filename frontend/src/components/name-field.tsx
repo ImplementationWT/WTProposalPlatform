@@ -45,7 +45,7 @@ export function NameField({ value, onChange, status, showStatus, autoFocus }: Pr
           </span>
         )}
         {showStatus && !status.checking && status.available && (
-          <span className="flex items-center gap-1 text-emerald-600">
+          <span className="flex items-center gap-1 text-emerald-400">
             <CheckIcon className="size-3" /> Disponible
           </span>
         )}
