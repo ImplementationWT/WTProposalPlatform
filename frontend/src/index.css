@@ -120,7 +120,7 @@
 /* Brand cursor (components/cursor.tsx) replaces the native one, except the I-beam in text fields. */
 @keyframes cursor-breathe {
   0%, 100% { scale: 0.94; box-shadow: 0 0 0 0 transparent; }
-  50% { scale: 1.08; box-shadow: 0 0 6px 0 oklch(0.66 0.2 17 / 0.35); }
+  50% { scale: 1.08; box-shadow: 0 0 4px 0 oklch(0.66 0.2 17 / 0.25); }
 }
 @keyframes cursor-ripple {
   from { scale: 0.15; opacity: 0.8; }

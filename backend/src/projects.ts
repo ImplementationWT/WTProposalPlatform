@@ -3,7 +3,8 @@ import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { MongoServerError, ObjectId, type Filter } from 'mongodb'
 import { z } from 'zod'
 import { config, RESERVED_NAMES, siteUrl } from './config.js'
-import { projects, visits, type ProjectDoc, type ProjectStatus } from './db.js'
+import { dayIn, groupVisits } from './analytics.js'
+import { pageviews, projects, visits, type ProjectDoc, type ProjectStatus } from './db.js'
 import { pendingDomain, provisionDomain, provisioningEnabled, releaseDomain } from './domains.js'
 import { HttpError } from './errors.js'
 import { hashPassword } from './password.js'
@@ -116,12 +117,6 @@ async function readUpload(request: FastifyRequest): Promise<UploadPayload> {
     }
   }
   return { fields, files }
-}
-
-function visitsSince(days: number): string {
-  const d = new Date()
-  d.setUTCDate(d.getUTCDate() - (days - 1))
-  return d.toISOString().slice(0, 10)
 }
 
 export async function projectRoutes(app: FastifyInstance): Promise<void> {
@@ -270,6 +265,7 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
     if (project.status !== 'deleted') throw new HttpError(400, 'Mueve primero el proyecto a la papelera')
     await projects.deleteOne({ _id: project._id })
     await visits.deleteMany({ projectId: project._id })
+    await pageviews.deleteMany({ projectId: project._id })
     await removeSite(project._id.toHexString())
     releaseDomain(project.name)
     return reply.code(204).send()
@@ -307,23 +303,54 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
     return reply.send(zipSite(project._id.toHexString(), project.version, project.files))
   })
 
+  // Visits by real people (no bots, link previews or team; see analytics.ts), with days in the
+  // viewer's time zone: people, visits (page loads under 30 min apart) and page views, plus a log.
   app.get<{ Params: { id: string } }>('/api/projects/:id/stats', async (request) => {
     const project = await getProject(request.params.id)
-    const { days } = z.object({ days: z.coerce.number().int().min(1).max(365).default(30) }).parse(request.query)
-    const since = visitsSince(days)
-    const rows = await visits.find({ projectId: project._id, day: { $gte: since } }).toArray()
-    const byDay = new Map(rows.map((r) => [r.day, r.count]))
+    const { days, tz } = z
+      .object({ days: z.coerce.number().int().min(1).max(365).default(30), tz: z.string().max(64).default('UTC') })
+      .parse(request.query)
+    const toDay = dayIn(tz)
 
-    const series: { day: string; count: number }[] = []
-    const cursor = new Date(`${since}T00:00:00Z`)
-    for (let i = 0; i < days; i++) {
-      const day = cursor.toISOString().slice(0, 10)
-      series.push({ day, count: byDay.get(day) ?? 0 })
-      cursor.setUTCDate(cursor.getUTCDate() + 1)
+    // Fetch a day extra so the first local day is complete whatever the offset.
+    const since = new Date(Date.now() - (days + 1) * 86_400_000)
+    const views = await pageviews.find({ projectId: project._id, at: { $gte: since } }).toArray()
+    const series = new Map<string, { day: string; people: Set<string>; visits: number; views: number }>()
+    for (let i = days - 1; i >= 0; i--) {
+      const day = toDay(new Date(Date.now() - i * 86_400_000))
+      series.set(day, { day, people: new Set(), visits: 0, views: 0 })
     }
-    const [all] = await visits
-      .aggregate<{ total: number }>([{ $match: { projectId: project._id } }, { $group: { _id: null, total: { $sum: '$count' } } }])
+    const first = [...series.keys()][0]
+    const inRange = views.filter((v) => toDay(v.at) >= first)
+    for (const v of inRange) {
+      const bucket = series.get(toDay(v.at))
+      if (!bucket) continue
+      bucket.views += 1
+      bucket.people.add(v.visitor)
+    }
+    const visitList = groupVisits(inRange)
+    for (const visit of visitList) {
+      const bucket = series.get(toDay(visit.start))
+      if (bucket) bucket.visits += 1
+    }
+
+    const [allTime] = await pageviews
+      .aggregate<{ views: number; people: number }>([
+        { $match: { projectId: project._id } },
+        { $group: { _id: '$visitor', views: { $sum: 1 } } },
+        { $group: { _id: null, views: { $sum: '$views' }, people: { $sum: 1 } } },
+      ])
       .toArray()
-    return { series, periodTotal: series.reduce((s, d) => s + d.count, 0), allTime: all?.total ?? 0 }
+
+    return {
+      series: [...series.values()].map(({ day, people, visits, views }) => ({ day, people: people.size, visits, views })),
+      period: { people: new Set(inRange.map((v) => v.visitor)).size, visits: visitList.length, views: inRange.length },
+      allTime: { people: allTime?.people ?? 0, views: allTime?.views ?? 0 },
+      // Newest first; the visitor id lets the panel tell returning people apart.
+      log: visitList
+        .slice(-60)
+        .reverse()
+        .map((v) => ({ ...v, start: v.start.toISOString(), end: v.end.toISOString() })),
+    }
   })
 }

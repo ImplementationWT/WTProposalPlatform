@@ -19,7 +19,7 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import { api, type Project } from '@/lib/api'
 import { formatBytes, slugify } from '@/lib/format'
-import { useAppConfig, useNameAvailability } from '@/lib/hooks'
+import { useAppConfig, useNameAvailability, useOpenSite } from '@/lib/hooks'
 import { cn } from '@/lib/utils'
 
 const EXAMPLE_HTML = `<!doctype html>
@@ -192,6 +192,7 @@ export function UploadDialog({ initialSource, onClose }: { initialSource: Source
 }
 
 function PublishedView({ project: created, onDone }: { project: Project; onDone: () => void }) {
+  const openSite = useOpenSite()
   // The subdomain's certificate is issued after publishing: follow it until it is ready.
   const live = useQuery({
     queryKey: ['projects', 'live', ''],
@@ -232,7 +233,7 @@ function PublishedView({ project: created, onDone }: { project: Project; onDone:
         <h2 className="text-lg font-semibold">¡Tu sitio está publicado!</h2>
         <p className="text-sm text-muted-foreground">Ya puedes compartir el enlace.</p>
       </div>
-      <a href={project.url} target="_blank" rel="noreferrer" className="break-all text-brand underline underline-offset-4">
+      <a href={project.url} onClick={openSite(project.url)} target="_blank" rel="noreferrer" className="break-all text-brand underline underline-offset-4">
         {project.url.replace(/^https?:\/\//, '')}
       </a>
       <div className="flex gap-2">
@@ -246,7 +247,7 @@ function PublishedView({ project: created, onDone }: { project: Project; onDone:
           <CopyIcon /> Copiar enlace
         </Button>
         <Button asChild variant="outline">
-          <a href={project.url} target="_blank" rel="noreferrer">
+          <a href={project.url} onClick={openSite(project.url)} target="_blank" rel="noreferrer">
             <ExternalLinkIcon /> Abrir
           </a>
         </Button>

@@ -5,7 +5,7 @@
 import * as THREE from 'three'
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
 import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
-import { FACTS, GREETING, INVITE } from './will-doo-brain'
+import { SCENES, SHY, type SceneName } from './will-doo-brain'
 
 /** Canvas size in CSS px; the robot is framed inside it with room for a raised arm. */
 export const ROBOT_SIZE = { width: 200, height: 240 }
@@ -304,10 +304,18 @@ export interface WillDooHandle {
   setChat(panel: HTMLElement | null): void
   /** Nod along for a moment, as if speaking. */
   talk(): void
+  /** Login or platform view: each has its own hello, invitation and comments. */
+  setScene(scene: SceneName): void
 }
 
 /** hit: a transparent button kept over his body so he can be clicked (the canvas sits under the content). */
-export function startWillDoo(container: HTMLElement, canvas: HTMLCanvasElement, bubble: Bubble, hit: HTMLElement): WillDooHandle {
+export function startWillDoo(
+  container: HTMLElement,
+  canvas: HTMLCanvasElement,
+  bubble: Bubble,
+  hit: HTMLElement,
+  initialScene: SceneName,
+): WillDooHandle {
   const still = matchMedia('(prefers-reduced-motion: reduce)').matches
   const { width: W, height: H } = ROBOT_SIZE
 
@@ -351,6 +359,7 @@ export function startWillDoo(container: HTMLElement, canvas: HTMLCanvasElement, 
     headRoll: spring(),
     eyeX: spring(),
     eyeY: spring(),
+    shy: spring(), // 0..1: looking away with eyes squeezed while you type a password
     fins: [spring(), spring()],
     shoulders: [spring(-0.12), spring(0.12)],
     shouldersX: [spring(), spring()],
@@ -378,6 +387,8 @@ export function startWillDoo(container: HTMLElement, canvas: HTMLCanvasElement, 
   const bubbleSize = { w: 0, h: 0 }
   let bubbleSide: BubbleSide = 'left'
   let greeted = false
+  let lines = SCENES[initialScene] // what he says in the current view
+  let shy = false
   let chat: HTMLElement | null = null
   const chatSize = { w: 0, h: 0 }
   let talkUntil = 0
@@ -529,16 +540,16 @@ export function startWillDoo(container: HTMLElement, canvas: HTMLCanvasElement, 
   let invited = false
   /** What to say next: the click-me invitation first (unless the chat is already open), then facts. */
   const nextLine = () => {
-    if (!invited && !chat) return INVITE
+    if (!invited && !chat) return lines.invite
     // No invitation while the chat is open: you're already talking to him.
-    const pool = chat ? FACTS.filter((f) => f !== INVITE) : FACTS
+    const pool = chat ? lines.facts.filter((f) => f !== lines.invite) : lines.facts
     return pool[Math.floor(Math.random() * pool.length)]
   }
   /** Says the next line; returns whether it fit on screen. */
   const comment = () => {
     const line = nextLine()
     const shown = say(line)
-    if (shown && line === INVITE) invited = true
+    if (shown && line === lines.invite) invited = true
     return shown
   }
 
@@ -558,6 +569,16 @@ export function startWillDoo(container: HTMLElement, canvas: HTMLCanvasElement, 
       if (!bubbleUntil && greeted) comment()
     }
   }
+  // Password field focused: he politely looks away (and says so) until it loses focus.
+  const onFocus = (e: FocusEvent) => {
+    const wasShy = shy
+    shy = !!(e.target as Element | null)?.matches?.('input[type="password"]')
+    if (shy && !wasShy && !hidden) {
+      say(null)
+      say(SHY, 3.5)
+    }
+  }
+  const onBlur = () => (shy = false)
   const onDown = (e: PointerEvent) => {
     if (!(e.target as Element | null)?.closest?.(INTERACTIVE)) return
     // Curious head tilt toward whatever you just clicked.
@@ -579,6 +600,8 @@ export function startWillDoo(container: HTMLElement, canvas: HTMLCanvasElement, 
   }
   addEventListener('pointermove', onMove, { passive: true })
   addEventListener('pointerdown', onDown)
+  addEventListener('focusin', onFocus)
+  addEventListener('focusout', onBlur)
   addEventListener('scroll', onLayout, { passive: true, capture: true })
   addEventListener('resize', onLayout)
 
@@ -649,7 +672,7 @@ export function startWillDoo(container: HTMLElement, canvas: HTMLCanvasElement, 
     // seconds after each bubble closes, chat open or not. Retries shortly when there's no room.
     if (!hidden && time > nextChatter && !bubbleUntil && fits(pos, [])) {
       if (!greeted) {
-        greeted = say(GREETING, 5.5)
+        greeted = say(lines.greeting, 5.5)
         if (greeted) {
           wave()
           holdUntil = time + 5 // stop and say hi, then carry on
@@ -671,7 +694,8 @@ export function startWillDoo(container: HTMLElement, canvas: HTMLCanvasElement, 
     // Gaze: the pointer while you're active, otherwise a lazy look around; ahead while flying.
     const head = { x: pos.x, y: pos.y - H * 0.22 }
     let target: Point
-    if (travel) target = { x: head.x + vel.x * 1.2, y: head.y + vel.y * 0.6 + 40 }
+    if (shy) target = { x: head.x + (pos.x > innerWidth / 2 ? 700 : -700), y: head.y - 260 } // away from the form, up
+    else if (travel) target = { x: head.x + vel.x * 1.2, y: head.y + vel.y * 0.6 + 40 }
     else if (time - lastPointerMove < 3.5) target = pointer
     else {
       if (!lookAround || time > nextLookAround) {
@@ -721,7 +745,8 @@ export function startWillDoo(container: HTMLElement, canvas: HTMLCanvasElement, 
         nextBlink = time + (secondBlink ? 0.12 : rand(2.2, 5.5))
       }
     }
-    for (const eye of robot.eyeList) eye.scale.y = lid
+    const squeeze = follow(s.shy, shy ? 1 : 0, dt, 60, 1)
+    for (const eye of robot.eyeList) eye.scale.y = lid * (1 - 0.8 * squeeze)
 
     // Fins: secondary motion from how fast the head turns.
     const headYawVel = (robot.head.rotation.y - prevHeadYaw) / Math.max(dt, 1e-3)
@@ -808,6 +833,8 @@ export function startWillDoo(container: HTMLElement, canvas: HTMLCanvasElement, 
       cancelAnimationFrame(reflow)
       removeEventListener('pointermove', onMove)
       removeEventListener('pointerdown', onDown)
+      removeEventListener('focusin', onFocus)
+      removeEventListener('focusout', onBlur)
       removeEventListener('scroll', onLayout, { capture: true })
       removeEventListener('resize', onLayout)
       env.dispose()
@@ -835,6 +862,25 @@ export function startWillDoo(container: HTMLElement, canvas: HTMLCanvasElement, 
     },
     talk() {
       talkUntil = time + 1.4
+    },
+    setScene(name) {
+      if (lines === SCENES[name]) return
+      // New view, new hello: greet again for it and invite again, right away if he's on screen.
+      lines = SCENES[name]
+      greeted = false
+      invited = false
+      shy = false
+      say(null)
+      nextChatter = time + 0.4
+      // The page underneath just changed, so don't leave him hovering where he was: slip off the
+      // nearest side and fly back in from it (planTrip re-enters from the side he is on).
+      pos.x = pos.x < innerWidth / 2 ? -W : innerWidth + W
+      vel.x = vel.y = 0
+      travel = null
+      route = []
+      holdUntil = 0
+      flightSpeed = 1
+      idleUntil = time + 0.3
     },
   }
 }

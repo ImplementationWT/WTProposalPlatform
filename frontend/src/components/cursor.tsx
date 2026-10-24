@@ -80,15 +80,15 @@ export function Cursor() {
       {/* Trailing ring: breathes slowly, swells and fills faintly over anything clickable */}
       <div ref={ring} className={layer}>
         <div
-          className={`${center} size-7 transition-[scale,background-color] duration-300 ease-out group-data-[pressed=true]:scale-75 group-data-[state=hover]:scale-150 group-data-[state=hover]:bg-brand/10`}
+          className={`${center} size-6 transition-[scale,background-color] duration-300 ease-out group-data-[pressed=true]:scale-75 group-data-[state=hover]:scale-150 group-data-[state=hover]:bg-brand/10`}
         >
-          <span className="block size-full animate-[cursor-breathe_3.6s_ease-in-out_infinite] rounded-full border border-brand/60 transition-colors group-data-[state=hover]:border-brand/90 motion-reduce:animate-none" />
+          <span className="block size-full animate-[cursor-breathe_3.6s_ease-in-out_infinite] rounded-full border-[0.75px] border-brand/55 transition-colors group-data-[state=hover]:border-brand/85 motion-reduce:animate-none" />
         </div>
       </div>
       {/* Dot plus the ripple it keeps emitting */}
       <div ref={dot} className={layer}>
-        <span className={`${center} size-12 animate-[cursor-ripple_2.4s_ease-out_infinite] border border-brand/50 motion-reduce:hidden group-data-[state=hover]:animate-[cursor-ripple_1.2s_ease-out_infinite]`} />
-        <span className={`${center} size-1.5 bg-brand shadow-[0_0_6px_var(--brand)] transition-[scale] duration-300 group-data-[state=hover]:scale-125`} />
+        <span className={`${center} size-11 animate-[cursor-ripple_2.4s_ease-out_infinite] border-[0.75px] border-brand/40 motion-reduce:hidden group-data-[state=hover]:animate-[cursor-ripple_1.2s_ease-out_infinite]`} />
+        <span className={`${center} size-[5px] bg-brand shadow-[0_0_4px_var(--brand)] transition-[scale] duration-300 group-data-[state=hover]:scale-125`} />
       </div>
     </div>
   )

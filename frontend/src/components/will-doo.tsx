@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent, type Ref } fr
 import { api } from '@/lib/api'
 import { useAppConfig } from '@/lib/hooks'
 import { hasFinePointer } from '@/lib/space'
-import { reply, STARTERS } from '@/lib/will-doo-brain'
+import { CHAT_INTRO, reply, type SceneName } from '@/lib/will-doo-brain'
 import type { WillDooHandle } from '@/lib/will-doo'
 import { cn } from '@/lib/utils'
 
@@ -17,10 +17,19 @@ interface Message {
   follow?: string[]
 }
 
-const WELCOME: Message = {
-  from: 'bot',
-  text: '¡Hola! Soy Will Doo 🤖 Pregúntame lo que quieras sobre el Publicador de subdominios.',
-  follow: STARTERS,
+const EMAIL = /([\w.+-]+@[\w-]+(?:\.[\w-]+)+)/
+
+/** Message text with e-mail addresses turned into mailto links. */
+function Linkified({ text }: { text: string }) {
+  return text.split(EMAIL).map((part, i) =>
+    i % 2 ? (
+      <a key={i} href={`mailto:${part}`} className="font-medium text-brand underline underline-offset-2 hover:text-foreground">
+        {part}
+      </a>
+    ) : (
+      part
+    ),
+  )
 }
 
 /** Will Doo roaming the background; click him to chat. three.js loads in its own chunk, after the app is up. */
@@ -38,6 +47,9 @@ export function WillDoo() {
   // signs in next on this tab never sees the previous one. Same query App uses, shared through the cache.
   const session = useQuery({ queryKey: ['session'], queryFn: api.session, staleTime: Infinity, retry: false })
   const sessionKey = session.data?.username ?? 'signed-out'
+  // Login view or platform: his bubbles change with it.
+  const scene: SceneName = session.data ? 'app' : 'login'
+  const sceneRef = useRef(scene) // read when the (lazily loaded) robot starts
   const [openFor, setOpenFor] = useState<string | null>(null)
   const open = openFor === sessionKey
   const close = useCallback(() => setOpenFor(null), [])
@@ -47,7 +59,13 @@ export function WillDoo() {
     let cancelled = false
     import('@/lib/will-doo').then(({ startWillDoo }) => {
       if (cancelled) return
-      handle.current = startWillDoo(container.current!, canvas.current!, { el: bubble.current!, title: title.current!, text: text.current! }, hit.current!)
+      handle.current = startWillDoo(
+        container.current!,
+        canvas.current!,
+        { el: bubble.current!, title: title.current!, text: text.current! },
+        hit.current!,
+        sceneRef.current,
+      )
     })
     return () => {
       cancelled = true
@@ -59,6 +77,11 @@ export function WillDoo() {
   useEffect(() => {
     handle.current?.setChat(open ? panel.current : null)
   }, [open])
+
+  useEffect(() => {
+    sceneRef.current = scene
+    handle.current?.setScene(scene)
+  }, [scene])
 
   return (
     <>
@@ -105,6 +128,7 @@ export function WillDoo() {
       <WillDooChat
         key={sessionKey}
         ref={panel}
+        scene={scene}
         open={open}
         onClose={close}
         onAnswer={() => handle.current?.talk()}
@@ -115,17 +139,20 @@ export function WillDoo() {
 
 function WillDooChat({
   ref,
+  scene,
   open,
   onClose,
   onAnswer,
 }: {
   ref: Ref<HTMLDivElement>
+  /** Login or platform: decides what he knows and how the chat opens. Fixed per mount (keyed by session). */
+  scene: SceneName
   open: boolean
   onClose: () => void
   onAnswer: () => void
 }) {
   const { data: config } = useAppConfig()
-  const [messages, setMessages] = useState<Message[]>([WELCOME])
+  const [messages, setMessages] = useState<Message[]>(() => [{ from: 'bot', ...CHAT_INTRO[scene] }])
   const [draft, setDraft] = useState('')
   const [typing, setTyping] = useState(false)
   const list = useRef<HTMLDivElement>(null)
@@ -159,7 +186,7 @@ function WillDooChat({
     setTyping(true)
     // A short "thinking" beat reads friendlier than an instant answer.
     setTimeout(() => {
-      const r = reply(q, { sitesSuffix: config?.sitesSuffix, maxUploadMb: config?.maxUploadMb })
+      const r = reply(q, { sitesSuffix: config?.sitesSuffix, maxUploadMb: config?.maxUploadMb }, scene)
       setMessages((m) => [...m, { from: 'bot', ...r }])
       setTyping(false)
       onAnswer()
@@ -206,7 +233,7 @@ function WillDooChat({
               m.from === 'bot' ? 'rounded-tl-sm bg-white/7' : 'ml-auto rounded-tr-sm bg-brand text-primary-foreground',
             )}
           >
-            {m.text}
+            <Linkified text={m.text} />
           </p>
         ))}
         {typing && (

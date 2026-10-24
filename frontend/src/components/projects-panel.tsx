@@ -3,6 +3,7 @@ import {
   ArchiveIcon,
   ArchiveRestoreIcon,
   BarChart3Icon,
+  CheckIcon,
   ChevronDownIcon,
   CloudUploadIcon,
   CopyIcon,
@@ -49,7 +50,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { BulkUpdateDialog, CustomizeDialog, EditHtmlDialog, UpdateChooser, UpdateFilesDialog, type UpdateView } from '@/components/update-dialogs'
 import { api, type Project, type ProjectStatus } from '@/lib/api'
 import { formatDate } from '@/lib/format'
-import { useDebounced } from '@/lib/hooks'
+import { useDebounced, useOpenSite } from '@/lib/hooks'
 import { cn } from '@/lib/utils'
 
 type ActiveDialog = { project: Project; view: 'chooser' | UpdateView | 'stats' | 'qr' | 'purge' }
@@ -66,6 +67,7 @@ export function ProjectsPanel({ onUpload }: { onUpload: (mode: 'file' | 'code') 
   const [search, setSearch] = useState('')
   const q = useDebounced(search.trim(), 250)
   const [active, setActive] = useState<ActiveDialog | null>(null)
+  const openSite = useOpenSite()
   const [bulkDialog, setBulkDialog] = useState<'update' | 'purge' | null>(null)
   const queryClient = useQueryClient()
 
@@ -203,7 +205,7 @@ export function ProjectsPanel({ onUpload }: { onUpload: (mode: 'file' | 'code') 
                 <TableHead className="h-11 w-24 font-mono text-[11px] tracking-widest text-muted-foreground uppercase">Estado</TableHead>
                 <TableHead className="font-mono text-[11px] tracking-widest text-muted-foreground uppercase">Proyecto</TableHead>
                 <TableHead className="hidden w-32 font-mono text-[11px] tracking-widest text-muted-foreground uppercase md:table-cell">{status === 'deleted' ? 'Eliminado' : 'Modificado'}</TableHead>
-                <TableHead className="w-12 pr-4 text-right font-mono text-[11px] tracking-widest text-muted-foreground uppercase sm:w-56 sm:text-center">Acciones</TableHead>
+                <TableHead className="w-12 pr-4 text-right font-mono text-[11px] tracking-widest text-muted-foreground uppercase sm:w-72 sm:text-center">Acciones</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -234,6 +236,7 @@ export function ProjectsPanel({ onUpload }: { onUpload: (mode: 'file' | 'code') 
                   <TableCell className="max-w-0">
                     <a
                       href={project.status === 'live' ? project.url : undefined}
+                      onClick={project.status === 'live' ? openSite(project.url) : undefined}
                       target="_blank"
                       rel="noreferrer"
                       className={cn(
@@ -255,6 +258,7 @@ export function ProjectsPanel({ onUpload }: { onUpload: (mode: 'file' | 'code') 
                           <Button variant="ghost" className="hidden sm:inline-flex" onClick={() => open(project, 'chooser')}>
                             <PencilLineIcon className="size-5" /> Actualizar
                           </Button>
+                          <CopyLinkAction url={project.url} />
                           <IconAction label="Estadísticas" onClick={() => open(project, 'stats')}>
                             <BarChart3Icon />
                           </IconAction>
@@ -388,6 +392,7 @@ function RowMenu({
   onOpen: (view: ActiveDialog['view']) => void
   onStatus: (to: ProjectStatus, message: string) => void
 }) {
+  const openSite = useOpenSite()
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -409,7 +414,7 @@ function RowMenu({
           <>
             {project.status === 'live' && (
               <DropdownMenuItem asChild>
-                <a href={project.url} target="_blank" rel="noreferrer">
+                <a href={project.url} onClick={openSite(project.url)} target="_blank" rel="noreferrer">
                   <ExternalLinkIcon /> Abrir sitio
                 </a>
               </DropdownMenuItem>
@@ -550,6 +555,27 @@ function ViewIcon({ label, active, onClick, children }: { label: string; active:
       </TooltipTrigger>
       <TooltipContent>{label}</TooltipContent>
     </Tooltip>
+  )
+}
+
+/** Copies the site's link; the icon turns into a check for a moment as confirmation. */
+function CopyLinkAction({ url }: { url: string }) {
+  const [copied, setCopied] = useState(false)
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(url)
+    } catch {
+      toast.error('No se pudo copiar el enlace')
+      return
+    }
+    toast.success('Enlace copiado')
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1500)
+  }
+  return (
+    <IconAction label={copied ? '¡Copiado!' : 'Copiar enlace'} onClick={copy}>
+      {copied ? <CheckIcon className="text-emerald-400" /> : <CopyIcon />}
+    </IconAction>
   )
 }
 

@@ -1,13 +1,17 @@
 import type { IncomingMessage } from 'node:http'
 import type { FastifyInstance, FastifyReply } from 'fastify'
 import { config, RESERVED_NAMES } from './config.js'
-import { projects, visits, type ProjectDoc } from './db.js'
+import { isTeamToken, recordPageview, TEAM_COOKIE, teamCookieOptions } from './analytics.js'
+import { projects, type ProjectDoc } from './db.js'
 import { safeEqual, siteToken, verifyPassword } from './password.js'
 import { versionDir } from './storage.js'
 
 /** Internal prefix the site requests are rewritten to; never reachable from the app host. */
 export const SITE_PREFIX = '/__site'
 const AUTH_PATH = '/__auth'
+// Panel "open site" links pass through here once to mark the browser as the team's on this host
+// (covers setups where the panel can't share a cookie with the sites' domain, e.g. localhost).
+const TEAM_PATH = '/__team'
 const COOKIE = 'site_auth'
 
 type SiteRequest = IncomingMessage & { siteName?: string }
@@ -101,13 +105,6 @@ function resolveFile(project: ProjectDoc, rawPath: string): { file?: string; red
   return {}
 }
 
-function countVisit(project: ProjectDoc): void {
-  const day = new Date().toISOString().slice(0, 10)
-  visits
-    .updateOne({ projectId: project._id, day }, { $inc: { count: 1 } }, { upsert: true })
-    .catch(() => undefined)
-}
-
 const findLive = (name: string) => projects.findOne({ name, status: 'live' })
 
 export async function siteRoutes(app: FastifyInstance): Promise<void> {
@@ -139,6 +136,13 @@ export async function siteRoutes(app: FastifyInstance): Promise<void> {
     },
   )
 
+  app.get<{ Params: { name: string }; Querystring: { t?: string; next?: string } }>(`${SITE_PREFIX}/:name${TEAM_PATH}`, async (request, reply) => {
+    const { name } = request.params
+    if (!fromSiteHost(request.raw, name)) return notFound(reply)
+    if (isTeamToken(request.query.t)) reply.setCookie(TEAM_COOKIE, request.query.t!, teamCookieOptions())
+    return reply.redirect(safeNext(request.query.next), 302)
+  })
+
   app.route<{ Params: { name: string; '*': string } }>({
     method: ['GET', 'HEAD'],
     url: `${SITE_PREFIX}/:name/*`,
@@ -158,7 +162,7 @@ export async function siteRoutes(app: FastifyInstance): Promise<void> {
       if (redirect) return reply.redirect(redirect, 301)
       if (!file) return notFound(reply)
 
-      if (request.method === 'GET' && /\.html?$/i.test(file)) countVisit(project)
+      if (request.method === 'GET' && /\.html?$/i.test(file)) recordPageview(request, project, `/${file}`)
       // Always revalidate (ETag) so an update is visible at once.
       reply.header('cache-control', project.access.mode === 'password' ? 'private, no-cache' : 'public, no-cache')
       return reply.sendFile(file, versionDir(project._id.toHexString(), project.version))

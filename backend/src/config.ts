@@ -25,6 +25,9 @@ const envSchema = z.object({
   ADMIN_PASSWORD_HASH: z.string().startsWith('scrypt$').optional(),
   // Signs the panel session cookie. Random per start if unset (sessions end on restart).
   SESSION_SECRET: z.string().min(32).optional(),
+  // Salt of the anonymous visitor ids in the analytics. Defaults to SESSION_SECRET; changing it
+  // makes every returning visitor look new once.
+  ANALYTICS_SALT: z.string().min(16).optional(),
   // Number of reverse-proxy hops to trust (nginx in production = 1).
   TRUST_PROXY_HOPS: z.coerce.number().int().min(0).default(0),
   MAX_UPLOAD_MB: z.coerce.number().positive().default(50),
@@ -47,6 +50,8 @@ export const config = {
   sitesDomain: env.SITES_DOMAIN.toLowerCase(),
   siteCookieSecret: env.SITE_COOKIE_SECRET ?? randomBytes(32).toString('base64url'),
   sessionSecret: env.SESSION_SECRET ?? randomBytes(32).toString('base64url'),
+  // Stable across restarts in development too, so a visitor stays one visitor.
+  analyticsSalt: env.ANALYTICS_SALT ?? env.SESSION_SECRET ?? (env.NODE_ENV === 'production' ? randomBytes(32).toString('base64url') : 'dev-analytics-salt'),
   maxUploadBytes: env.MAX_UPLOAD_MB * 1024 * 1024,
   maxSiteBytes: env.MAX_SITE_MB * 1024 * 1024,
 }

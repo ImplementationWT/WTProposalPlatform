@@ -33,16 +33,31 @@ export interface AppConfig {
   maxUploadMb: number
 }
 
+export interface VisitLogEntry {
+  visitor: string
+  start: string
+  end: string
+  pages: number
+  device: 'mobile' | 'tablet' | 'desktop'
+  os: string
+  browser: string
+  referrer: string | null
+}
+
+/** Real people only: bots, link previews and the team's own visits are not counted. */
 export interface Stats {
-  series: { day: string; count: number }[]
-  periodTotal: number
-  allTime: number
+  series: { day: string; people: number; visits: number; views: number }[]
+  period: { people: number; visits: number; views: number }
+  allTime: { people: number; views: number }
+  log: VisitLogEntry[]
 }
 
 export class ApiError extends Error {}
 
 export interface Session {
   username: string
+  /** Marks the team's browser on a site so its own visits aren't counted (see useOpenSite). */
+  teamToken?: string
 }
 
 /** Called when the session expires mid-use (any 401 outside the login form). */
@@ -136,7 +151,8 @@ export const api = {
   writeFile: (id: string, path: string, content: string) =>
     request<Project>(`/api/projects/${id}/file`, json('PUT', { path, content })),
 
-  stats: (id: string, days = 30) => request<Stats>(`/api/projects/${id}/stats?days=${days}`),
+  stats: (id: string, days = 30) =>
+    request<Stats>(`/api/projects/${id}/stats?${new URLSearchParams({ days: String(days), tz: Intl.DateTimeFormat().resolvedOptions().timeZone })}`),
 
   downloadUrl: (id: string) => `/api/projects/${id}/download`,
 }

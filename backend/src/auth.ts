@@ -1,6 +1,7 @@
 import { createHmac } from 'node:crypto'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { z } from 'zod'
+import { TEAM_COOKIE, teamCookieOptions, teamToken } from './analytics.js'
 import { config } from './config.js'
 import { HttpError } from './errors.js'
 import { hashPassword, safeEqual, verifyPassword } from './password.js'
@@ -70,11 +71,24 @@ export async function panelGuard(request: FastifyRequest, reply: FastifyReply) {
   if (!sessionUser(request)) return reply.code(401).send({ error: 'Inicia sesión para continuar' })
 }
 
+/**
+ * Marks this browser as the team's, so its visits to the published sites are not counted. The cookie
+ * goes on the sites' parent domain when the panel lives under it (panel.<SITES_DOMAIN> in
+ * production); the token is also returned for the panel's own "open site" links (see sites.ts).
+ */
+function markTeam(request: FastifyRequest, reply: FastifyReply): string {
+  const token = teamToken()
+  const host = (request.headers.host ?? '').toLowerCase().replace(/:\d+$/, '')
+  const shared = host === config.sitesDomain || host.endsWith(`.${config.sitesDomain}`)
+  reply.setCookie(TEAM_COOKIE, token, teamCookieOptions(shared && config.sitesDomain !== 'localhost' ? config.sitesDomain : undefined))
+  return token
+}
+
 export async function authRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/auth/session', async (request, reply) => {
     const username = sessionUser(request)
     if (!username) return reply.code(401).send({ error: 'Sin sesión' })
-    return { username }
+    return { username, teamToken: markTeam(request, reply) }
   })
 
   app.post('/api/auth/login', async (request, reply) => {
@@ -94,7 +108,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       secure: config.isProduction,
       maxAge: SESSION_DAYS * 86_400,
     })
-    return { username: config.ADMIN_USERNAME }
+    return { username: config.ADMIN_USERNAME, teamToken: markTeam(request, reply) }
   })
 
   app.post('/api/auth/logout', async (_request, reply) => {
