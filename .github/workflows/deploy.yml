@@ -39,13 +39,14 @@ jobs:
           MONGODB_URI: ${{ secrets.MONGODB_URI }}
           ADMIN_PASSWORD_HASH: ${{ secrets.ADMIN_PASSWORD_HASH }}
           SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
+          PLATFORM_API_KEY: ${{ secrets.PLATFORM_API_KEY }}
           SITE_COOKIE_SECRET: ${{ secrets.SITE_COOKIE_SECRET }}
           ADMIN_USERNAME: ${{ vars.ADMIN_USERNAME || 'admin' }}
           MONGODB_DB: ${{ vars.MONGODB_DB || 'sites_platform' }}
         run: |
           umask 077
           # Literal KEY=value lines (the server rejects any other key).
-          for key in MONGODB_URI MONGODB_DB ADMIN_USERNAME ADMIN_PASSWORD_HASH SESSION_SECRET SITE_COOKIE_SECRET; do
+          for key in MONGODB_URI MONGODB_DB ADMIN_USERNAME ADMIN_PASSWORD_HASH SESSION_SECRET SITE_COOKIE_SECRET PLATFORM_API_KEY; do
             printf '%s=%s\n' "$key" "${!key}"
           done > secrets.env
 

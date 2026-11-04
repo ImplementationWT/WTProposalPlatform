@@ -47,6 +47,13 @@ function recordFailure(ip: string) {
   failures.set(ip, entry)
 }
 
+/** Server-to-server call from WT_OutsourcingPlatform with the shared key (see PLATFORM_API_KEY). */
+export function platformCall(request: FastifyRequest): boolean {
+  const key = config.PLATFORM_API_KEY
+  const header = request.headers.authorization ?? ''
+  return Boolean(key) && header.startsWith('Bearer ') && safeEqual(header.slice(7), key!)
+}
+
 const sameOrigin = (request: FastifyRequest) => {
   const origin = request.headers.origin
   if (!origin) return true // not a browser request
@@ -64,6 +71,8 @@ const sameOrigin = (request: FastifyRequest) => {
  */
 export async function panelGuard(request: FastifyRequest, reply: FastifyReply) {
   if (!request.url.startsWith('/api/')) return
+  // Not a browser: no cookie and no origin to check.
+  if (platformCall(request)) return
   if (request.method !== 'GET' && request.method !== 'HEAD' && !sameOrigin(request)) {
     return reply.code(403).send({ error: 'Origen no permitido' })
   }
@@ -86,6 +95,8 @@ function markTeam(request: FastifyRequest, reply: FastifyReply): string {
 
 export async function authRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/auth/session', async (request, reply) => {
+    // The platform gets a team token for its own "open site" links, without a cookie.
+    if (platformCall(request)) return { username: 'platform', teamToken: teamToken() }
     const username = sessionUser(request)
     if (!username) return reply.code(401).send({ error: 'Sin sesión' })
     return { username, teamToken: markTeam(request, reply) }

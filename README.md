@@ -61,6 +61,7 @@ En el VPS, la clave de `sitesdeploy` solo puede ejecutar [app-deploy](deploy/vps
 | `ADMIN_PASSWORD_HASH` | `npm run hash-password -w backend -- <contraseña>` |
 | `SESSION_SECRET` | 32+ caracteres aleatorios (cookie de sesión del panel) |
 | `SITE_COOKIE_SECRET` | 32+ caracteres aleatorios (cookie de los sitios con contraseña) |
+| `PLATFORM_API_KEY` | 32+ caracteres aleatorios. WT_OutsourcingPlatform la usa para llamar a la API (`Authorization: Bearer …`); es la misma que `PROPOSAL_SITES_KEY` allá. Opcional |
 | `SSH_PRIVATE_KEY` | Clave privada de deploy; su pública está en `/etc/sites-platform/ci_deploy.pub` |
 | `SSH_KNOWN_HOSTS` | `<IP> ssh-ed25519 …` del VPS |
 

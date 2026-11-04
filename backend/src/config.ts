@@ -28,6 +28,10 @@ const envSchema = z.object({
   // Salt of the anonymous visitor ids in the analytics. Defaults to SESSION_SECRET; changing it
   // makes every returning visitor look new once.
   ANALYTICS_SALT: z.string().min(16).optional(),
+  // Key for server-to-server calls from WT_OutsourcingPlatform (Authorization: Bearer <key>).
+  // Unset: only the panel session works.
+  // An empty value (secret not set in the workflow) counts as unset.
+  PLATFORM_API_KEY: z.preprocess((v) => (v === '' ? undefined : v), z.string().min(32).optional()),
   // Number of reverse-proxy hops to trust (nginx in production = 1).
   TRUST_PROXY_HOPS: z.coerce.number().int().min(0).default(0),
   MAX_UPLOAD_MB: z.coerce.number().positive().default(50),
