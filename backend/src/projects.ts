@@ -3,7 +3,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { MongoServerError, ObjectId, type Filter } from 'mongodb'
 import { z } from 'zod'
 import { config, RESERVED_NAMES, siteUrl } from './config.js'
-import { dayIn, groupVisits } from './analytics.js'
+import { dayIn, groupVisits, validTimeZone } from './analytics.js'
 import { pageviews, projects, visits, type ProjectDoc, type ProjectStatus } from './db.js'
 import { pendingDomain, provisionDomain, provisioningEnabled, releaseDomain } from './domains.js'
 import { HttpError } from './errors.js'
@@ -304,21 +304,24 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
   })
 
   // Visits by real people (no bots, link previews or team; see analytics.ts), with days in the
-  // viewer's time zone: people, visits (page loads under 30 min apart) and page views, plus a log.
+  // viewer's time zone: opens (one per person and day), visits (page loads under 30 min apart) and page views, plus a log.
   app.get<{ Params: { id: string } }>('/api/projects/:id/stats', async (request) => {
     const project = await getProject(request.params.id)
     const { days, tz } = z
       .object({ days: z.coerce.number().int().min(1).max(365).default(30), tz: z.string().max(64).default('UTC') })
       .parse(request.query)
-    const toDay = dayIn(tz)
+    // Unknown zones fall back to UTC (also for the Mongo aggregation below, which rejects them).
+    const timeZone = validTimeZone(tz)
+    const toDay = dayIn(timeZone)
 
     // Fetch a day extra so the first local day is complete whatever the offset.
     const since = new Date(Date.now() - (days + 1) * 86_400_000)
     const views = await pageviews.find({ projectId: project._id, at: { $gte: since } }).toArray()
-    const series = new Map<string, { day: string; people: Set<string>; visits: number; views: number }>()
+    // opens: people who opened it that day; the same person opening it again the same day adds nothing.
+    const series = new Map<string, { day: string; opens: Set<string>; visits: number; views: number }>()
     for (let i = days - 1; i >= 0; i--) {
       const day = toDay(new Date(Date.now() - i * 86_400_000))
-      series.set(day, { day, people: new Set(), visits: 0, views: 0 })
+      series.set(day, { day, opens: new Set(), visits: 0, views: 0 })
     }
     const first = [...series.keys()][0]
     const inRange = views.filter((v) => toDay(v.at) >= first)
@@ -326,7 +329,7 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
       const bucket = series.get(toDay(v.at))
       if (!bucket) continue
       bucket.views += 1
-      bucket.people.add(v.visitor)
+      bucket.opens.add(v.visitor)
     }
     const visitList = groupVisits(inRange)
     for (const visit of visitList) {
@@ -334,18 +337,20 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
       if (bucket) bucket.visits += 1
     }
 
+    // All time: one open per person and local day.
     const [allTime] = await pageviews
-      .aggregate<{ views: number; people: number }>([
+      .aggregate<{ views: number; opens: number }>([
         { $match: { projectId: project._id } },
-        { $group: { _id: '$visitor', views: { $sum: 1 } } },
-        { $group: { _id: null, views: { $sum: '$views' }, people: { $sum: 1 } } },
+        { $group: { _id: { visitor: '$visitor', day: { $dateToString: { format: '%Y-%m-%d', date: '$at', timezone: timeZone } } }, views: { $sum: 1 } } },
+        { $group: { _id: null, views: { $sum: '$views' }, opens: { $sum: 1 } } },
       ])
       .toArray()
 
+    const periodSeries = [...series.values()].map(({ day, opens, visits, views }) => ({ day, opens: opens.size, visits, views }))
     return {
-      series: [...series.values()].map(({ day, people, visits, views }) => ({ day, people: people.size, visits, views })),
-      period: { people: new Set(inRange.map((v) => v.visitor)).size, visits: visitList.length, views: inRange.length },
-      allTime: { people: allTime?.people ?? 0, views: allTime?.views ?? 0 },
+      series: periodSeries,
+      period: { opens: periodSeries.reduce((sum, d) => sum + d.opens, 0), visits: visitList.length, views: inRange.length },
+      allTime: { opens: allTime?.opens ?? 0, views: allTime?.views ?? 0 },
       // Newest first; the visitor id lets the panel tell returning people apart.
       log: visitList
         .slice(-60)

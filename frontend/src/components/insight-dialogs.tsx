@@ -16,17 +16,17 @@ interface DialogProps {
   onClose: () => void
 }
 
-type MetricKey = 'visits' | 'people' | 'views'
+type MetricKey = 'visits' | 'opens' | 'views'
 
 const METRICS: { key: MetricKey; label: string; hint: string }[] = [
-  { key: 'people', label: 'Personas únicas', hint: 'Dispositivos distintos que lo abrieron' },
+  { key: 'opens', label: 'Aperturas', hint: 'Una por persona y día; volver a abrirla el mismo día no suma' },
   { key: 'visits', label: 'Visitas', hint: 'Veces que lo abrieron (recargas seguidas cuentan una)' },
   { key: 'views', label: 'Páginas vistas', hint: 'Cada página cargada, incluidas las recargas' },
 ]
 
 const chartConfig = {
   visits: { label: 'Visitas', color: 'var(--primary)' },
-  people: { label: 'Personas únicas', color: 'var(--primary)' },
+  opens: { label: 'Aperturas', color: 'var(--primary)' },
   views: { label: 'Páginas vistas', color: 'var(--primary)' },
 } satisfies ChartConfig
 const dayLabel = new Intl.DateTimeFormat('es', { day: 'numeric', month: 'short', timeZone: 'UTC' })

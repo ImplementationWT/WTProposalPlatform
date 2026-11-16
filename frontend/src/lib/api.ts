@@ -46,9 +46,10 @@ export interface VisitLogEntry {
 
 /** Real people only: bots, link previews and the team's own visits are not counted. */
 export interface Stats {
-  series: { day: string; people: number; visits: number; views: number }[]
-  period: { people: number; visits: number; views: number }
-  allTime: { people: number; views: number }
+  /** opens: one per person and day (opening it again the same day adds nothing). */
+  series: { day: string; opens: number; visits: number; views: number }[]
+  period: { opens: number; visits: number; views: number }
+  allTime: { opens: number; views: number }
   log: VisitLogEntry[]
 }
 

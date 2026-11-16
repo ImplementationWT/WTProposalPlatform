@@ -156,6 +156,16 @@ export function groupVisits(views: PageviewDoc[]): Visit[] {
   return visits
 }
 
+/** The zone itself if it is a valid IANA name, else "UTC". */
+export function validTimeZone(timeZone: string): string {
+  try {
+    new Intl.DateTimeFormat('en', { timeZone })
+    return timeZone
+  } catch {
+    return 'UTC'
+  }
+}
+
 /** "YYYY-MM-DD" of a moment in the given IANA time zone (falls back to UTC). */
 export function dayIn(timeZone: string): (d: Date) => string {
   let format: Intl.DateTimeFormat
