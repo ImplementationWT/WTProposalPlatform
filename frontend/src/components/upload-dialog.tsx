@@ -12,6 +12,7 @@ import {
 } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
+import { ClientPicker } from '@/components/clients'
 import { CodeEditor } from '@/components/lazy'
 import { Dropzone, DropzoneIcons } from '@/components/dropzone'
 import { NameField } from '@/components/name-field'
@@ -45,10 +46,11 @@ const EXAMPLE_HTML = `<!doctype html>
 
 export type Source = 'file' | 'code'
 
-export function UploadDialog({ initialSource, onClose }: { initialSource: Source; onClose: () => void }) {
+export function UploadDialog({ initialSource, initialClient, onClose }: { initialSource: Source; initialClient: string | null; onClose: () => void }) {
   const queryClient = useQueryClient()
   const { data: config } = useAppConfig()
   const [name, setName] = useState('')
+  const [clientId, setClientId] = useState(initialClient)
   const [source, setSource] = useState<Source>(initialSource)
   const [file, setFile] = useState<File | null>(null)
   const [code, setCode] = useState('')
@@ -59,12 +61,13 @@ export function UploadDialog({ initialSource, onClose }: { initialSource: Source
   const publish = useMutation({
     mutationFn: () =>
       api.create(
-        source === 'file' ? { name: name.trim(), files: file ? [file] : [] } : { name: name.trim(), html: code },
+        source === 'file' ? { name: name.trim(), clientId, files: file ? [file] : [] } : { name: name.trim(), clientId, html: code },
         setProgress,
       ),
     onSuccess: (project) => {
       setPublished(project)
       queryClient.invalidateQueries({ queryKey: ['projects'] })
+      queryClient.invalidateQueries({ queryKey: ['clients'] })
     },
     onError: (err) => toast.error(err.message),
     onSettled: () => setProgress(null),
@@ -99,6 +102,7 @@ export function UploadDialog({ initialSource, onClose }: { initialSource: Source
             }}
           >
             <NameField value={name} onChange={setName} status={availability} showStatus={name.length > 0} autoFocus />
+            <ClientPicker value={clientId} onChange={setClientId} />
 
             <div className="grid grid-cols-2 overflow-hidden rounded-lg border" role="tablist">
               {(

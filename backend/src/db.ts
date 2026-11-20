@@ -22,9 +22,21 @@ export interface ProjectDoc {
   access: { mode: 'public' } | { mode: 'password'; passwordHash: string }
   // HTTPS certificate + nginx server of <name>.<SITES_DOMAIN> (see domains.ts).
   domain?: { status: DomainStatus; error?: string }
+  // Client folder the project is filed under; unset = "Sin cliente". Only organizes the panel.
+  clientId?: ObjectId
   createdAt: Date
   updatedAt: Date
   deletedAt?: Date
+}
+
+/** A client (or WHATEVER Tech itself): a folder that groups projects in the panel. */
+export interface ClientDoc {
+  _id: ObjectId
+  name: string
+  // Lowercase, trimmed name: unique, so "Nadro" and "nadro " are the same client.
+  key: string
+  createdAt: Date
+  updatedAt: Date
 }
 
 /** Old per-day counter (counted bots and the team too). Superseded by pageviews; only cleaned up now. */
@@ -57,6 +69,7 @@ const client = new MongoClient(config.MONGODB_URI)
 const db = client.db(config.MONGODB_DB)
 
 export const projects: Collection<ProjectDoc> = db.collection('projects')
+export const clients: Collection<ClientDoc> = db.collection('clients')
 export const visits: Collection<VisitDoc> = db.collection('visits')
 export const pageviews: Collection<PageviewDoc> = db.collection('pageviews')
 
@@ -64,6 +77,15 @@ export async function connectDb(): Promise<void> {
   await client.connect()
   await projects.createIndex({ name: 1 }, { unique: true })
   await projects.createIndex({ status: 1, updatedAt: -1 })
+  await projects.createIndex({ clientId: 1 })
+  await clients.createIndex({ key: 1 }, { unique: true })
+  // The first start creates WHATEVER Tech as a client, for the company's own projects.
+  if ((await clients.estimatedDocumentCount()) === 0) {
+    const now = new Date()
+    await clients
+      .updateOne({ key: 'whatever tech' }, { $setOnInsert: { name: 'WHATEVER Tech', key: 'whatever tech', createdAt: now, updatedAt: now } }, { upsert: true })
+      .catch(() => undefined)
+  }
   await visits.createIndex({ projectId: 1, day: 1 }, { unique: true })
   await pageviews.createIndex({ projectId: 1, at: -1 })
   await pageviews.createIndex({ at: 1 }, { expireAfterSeconds: PAGEVIEW_RETENTION_DAYS * 86_400 })

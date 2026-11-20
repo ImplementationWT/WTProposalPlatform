@@ -7,7 +7,7 @@ import { LoginPage } from '@/components/login-page'
 import { ProjectsPanel } from '@/components/projects-panel'
 import { Button } from '@/components/ui/button'
 import { UploadDialog, type Source } from '@/components/upload-dialog'
-import { api, onUnauthorized } from '@/lib/api'
+import { api, onUnauthorized, type ClientFilter } from '@/lib/api'
 import { useAppConfig } from '@/lib/hooks'
 
 function App() {
@@ -24,6 +24,8 @@ function App() {
 
 function Panel() {
   const [upload, setUpload] = useState<Source | null>(null)
+  // Client folder being viewed; new uploads go under it.
+  const [client, setClient] = useState<ClientFilter>('all')
   const { data: config } = useAppConfig()
   const queryClient = useQueryClient()
 
@@ -72,10 +74,12 @@ function Panel() {
             cliente, con estadísticas de visitas y acceso privado.
           </p>
         </div>
-        <ProjectsPanel onUpload={setUpload} />
+        <ProjectsPanel onUpload={setUpload} client={client} onClientChange={setClient} />
       </main>
 
-      {upload && <UploadDialog initialSource={upload} onClose={() => setUpload(null)} />}
+      {upload && (
+        <UploadDialog initialSource={upload} initialClient={client === 'all' || client === 'none' ? null : client} onClose={() => setUpload(null)} />
+      )}
     </div>
   )
 }

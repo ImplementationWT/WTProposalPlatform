@@ -11,6 +11,11 @@ export function useDebounced<T>(value: T, ms = 300): T {
   return debounced
 }
 
+/** Client folders with their project counts. */
+export function useClients() {
+  return useQuery({ queryKey: ['clients'], queryFn: api.clients })
+}
+
 export function useAppConfig() {
   return useQuery({ queryKey: ['config'], queryFn: api.config, staleTime: Infinity })
 }

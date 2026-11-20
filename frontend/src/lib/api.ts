@@ -7,9 +7,29 @@ export interface SiteFile {
   size: number
 }
 
+/** A client (or WHATEVER Tech itself): a folder that groups projects. */
+export interface ClientRef {
+  id: string
+  name: string
+}
+
+export interface Client extends ClientRef {
+  counts: Record<ProjectStatus, number>
+}
+
+export interface ClientList {
+  items: Client[]
+  /** Projects without a client. */
+  none: Record<ProjectStatus, number>
+}
+
+/** Which client's projects the panel shows: every one, the unfiled ones, or one client's id. */
+export type ClientFilter = 'all' | 'none' | string
+
 export interface Project {
   id: string
   name: string
+  client: ClientRef | null
   url: string
   status: ProjectStatus
   homepage: string
@@ -114,17 +134,23 @@ export const api = {
   logout: () => request<void>('/api/auth/logout', { method: 'POST' }),
   config: () => request<AppConfig>('/api/config'),
 
-  list: (status: ProjectStatus, q: string) =>
-    request<ProjectList>(`/api/projects?${new URLSearchParams({ status, ...(q ? { q } : {}) })}`),
+  list: (status: ProjectStatus, q: string, client: ClientFilter = 'all') =>
+    request<ProjectList>(`/api/projects?${new URLSearchParams({ status, ...(q ? { q } : {}), ...(client !== 'all' ? { client } : {}) })}`),
+
+  clients: () => request<ClientList>('/api/clients'),
+  createClient: (name: string) => request<ClientRef>('/api/clients', json('POST', { name })),
+  renameClient: (id: string, name: string) => request<ClientRef>(`/api/clients/${id}`, json('PATCH', { name })),
+  removeClient: (id: string) => request<void>(`/api/clients/${id}`, { method: 'DELETE' }),
 
   nameAvailability: (name: string, exceptId?: string) =>
     request<{ available: boolean; reason?: string }>(
       `/api/projects/name-availability?${new URLSearchParams({ name, ...(exceptId ? { exceptId } : {}) })}`,
     ),
 
-  create: (data: { name: string; files?: File[]; html?: string }, onProgress?: (p: number) => void) => {
+  create: (data: { name: string; clientId?: string | null; files?: File[]; html?: string }, onProgress?: (p: number) => void) => {
     const form = new FormData()
     form.append('name', data.name)
+    if (data.clientId) form.append('clientId', data.clientId)
     if (data.html) form.append('html', data.html)
     for (const file of data.files ?? []) form.append('file', file)
     return upload<Project>('/api/projects', form, onProgress)
@@ -139,7 +165,7 @@ export const api = {
 
   update: (
     id: string,
-    data: { name?: string; homepage?: string; access?: { mode: 'public' } | { mode: 'password'; password?: string } },
+    data: { name?: string; homepage?: string; clientId?: string | null; access?: { mode: 'public' } | { mode: 'password'; password?: string } },
   ) => request<Project>(`/api/projects/${id}`, json('PATCH', data)),
 
   setStatus: (id: string, status: ProjectStatus) => request<Project>(`/api/projects/${id}/status`, json('POST', { status })),

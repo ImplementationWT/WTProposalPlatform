@@ -2,6 +2,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import {
   ArchiveIcon,
   ArchiveRestoreIcon,
+  ArrowLeftIcon,
   BarChart3Icon,
   CheckIcon,
   ChevronDownIcon,
@@ -10,6 +11,7 @@ import {
   DownloadIcon,
   ExternalLinkIcon,
   FileCodeIcon,
+  FolderInputIcon,
   Loader2Icon,
   LockIcon,
   MoreHorizontalIcon,
@@ -23,6 +25,7 @@ import {
 } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import { toast } from 'sonner'
+import { ClientFolders, ClientMenu, MoveToClientMenu, NewClientButton } from '@/components/clients'
 import { QrDialog, StatsDialog } from '@/components/lazy'
 import {
   AlertDialog,
@@ -48,9 +51,9 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { BulkUpdateDialog, CustomizeDialog, EditHtmlDialog, UpdateChooser, UpdateFilesDialog, type UpdateView } from '@/components/update-dialogs'
-import { api, type Project, type ProjectStatus } from '@/lib/api'
+import { api, type ClientFilter, type Project, type ProjectStatus } from '@/lib/api'
 import { formatDate } from '@/lib/format'
-import { useDebounced, useOpenSite } from '@/lib/hooks'
+import { useClients, useDebounced, useOpenSite } from '@/lib/hooks'
 import { cn } from '@/lib/utils'
 
 type ActiveDialog = { project: Project; view: 'chooser' | UpdateView | 'stats' | 'qr' | 'purge' }
@@ -62,18 +65,37 @@ const NO_SELECTION = new Set<string>()
 /** "1 proyecto archivado" / "3 proyectos archivados" */
 const countLabel = (n: number, done: string) => (n === 1 ? `1 proyecto ${done}` : `${n} proyectos ${done.replace(/^(\S+)/, '$1s')}`)
 
-export function ProjectsPanel({ onUpload }: { onUpload: (mode: 'file' | 'code') => void }) {
+export function ProjectsPanel({
+  onUpload,
+  client,
+  onClientChange,
+}: {
+  onUpload: (mode: 'file' | 'code') => void
+  client: ClientFilter
+  onClientChange: (client: ClientFilter) => void
+}) {
   const [status, setStatus] = useState<ProjectStatus>('live')
   const [search, setSearch] = useState('')
   const q = useDebounced(search.trim(), 250)
+  const clients = useClients()
+  const openClient = client === 'all' || client === 'none' ? undefined : clients.data?.items.find((c) => c.id === client)
+  const clientName = client === 'none' ? 'Sin cliente' : openClient?.name
+  // Home of the active projects: the client folders instead of every link. Searching, the archive
+  // and the trash still list the links themselves.
+  const folderView = client === 'all' && status === 'live' && !q
   const [active, setActive] = useState<ActiveDialog | null>(null)
   const openSite = useOpenSite()
   const [bulkDialog, setBulkDialog] = useState<'update' | 'purge' | null>(null)
   const queryClient = useQueryClient()
+  // Project lists and the per-client counts of the folders.
+  const refresh = () => {
+    queryClient.invalidateQueries({ queryKey: ['projects'] })
+    queryClient.invalidateQueries({ queryKey: ['clients'] })
+  }
 
   const list = useQuery({
-    queryKey: ['projects', status, q],
-    queryFn: () => api.list(status, q),
+    queryKey: ['projects', status, q, client],
+    queryFn: () => api.list(status, q, client),
     placeholderData: keepPreviousData,
     // Until every new subdomain has its certificate.
     refetchInterval: (query) => (query.state.data?.items.some((p) => p.domain === 'pending') ? 3000 : false),
@@ -82,7 +104,7 @@ export function ProjectsPanel({ onUpload }: { onUpload: (mode: 'file' | 'code') 
   const items = list.data?.items ?? []
 
   // A selection belongs to one view: switching tab or search starts over.
-  const scope = `${status}:${q}`
+  const scope = `${status}:${q}:${client}`
   const [selection, setSelection] = useState({ scope, ids: NO_SELECTION })
   const selectedIds = selection.scope === scope ? selection.ids : NO_SELECTION
   const selected = items.filter((p) => selectedIds.has(p.id))
@@ -102,7 +124,7 @@ export function ProjectsPanel({ onUpload }: { onUpload: (mode: 'file' | 'code') 
       return results.filter((r) => r.status === 'rejected').length
     },
     onSuccess: (failed, { ids, done }) => {
-      queryClient.invalidateQueries({ queryKey: ['projects'] })
+      refresh()
       clearSelection()
       setBulkDialog(null)
       if (failed) toast.error(`${failed} de ${ids.length} proyectos no se pudieron procesar`)
@@ -111,11 +133,22 @@ export function ProjectsPanel({ onUpload }: { onUpload: (mode: 'file' | 'code') 
   })
   const bulkStatus = (to: ProjectStatus, done: string) =>
     bulk.mutate({ ids: selected.map((p) => p.id), run: (id) => api.setStatus(id, to), done })
+  const bulkMove = (clientId: string | null, name: string) =>
+    bulk.mutate({ ids: selected.map((p) => p.id), run: (id) => api.update(id, { clientId }), done: `movido a ${name}` })
+
+  const move = useMutation({
+    mutationFn: ({ id, clientId }: { id: string; clientId: string | null; name: string }) => api.update(id, { clientId }),
+    onSuccess: (_, { name }) => {
+      refresh()
+      toast.success(`Movido a ${name}`)
+    },
+    onError: (err) => toast.error(err.message),
+  })
 
   const changeStatus = useMutation({
     mutationFn: ({ id, to }: { id: string; to: ProjectStatus; message: string }) => api.setStatus(id, to),
     onSuccess: (_, { message }) => {
-      queryClient.invalidateQueries({ queryKey: ['projects'] })
+      refresh()
       toast.success(message)
     },
     onError: (err) => toast.error(err.message),
@@ -124,7 +157,7 @@ export function ProjectsPanel({ onUpload }: { onUpload: (mode: 'file' | 'code') 
   const purge = useMutation({
     mutationFn: (id: string) => api.remove(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['projects'] })
+      refresh()
       toast.success('Proyecto eliminado definitivamente')
       setActive(null)
     },
@@ -154,10 +187,29 @@ export function ProjectsPanel({ onUpload }: { onUpload: (mode: 'file' | 'code') 
 
       <div className={cn('rounded-3xl border bg-card p-4 shadow-2xl shadow-black/30 backdrop-blur sm:p-8', status === 'live' && 'rounded-tl-none')}>
         <div className="flex flex-wrap items-center justify-between gap-4">
-          <h2 className="text-2xl font-bold tracking-tight">{TITLES[status]}</h2>
+          {client === 'all' ? (
+            <h2 className="text-2xl font-bold tracking-tight">{folderView ? 'Clientes' : TITLES[status]}</h2>
+          ) : (
+            <div className="min-w-0">
+              <button
+                type="button"
+                onClick={() => onClientChange('all')}
+                className="mb-1 flex items-center gap-1.5 font-mono text-[11px] tracking-widest text-muted-foreground uppercase transition-colors hover:text-brand"
+              >
+                <ArrowLeftIcon className="size-3.5" /> Clientes
+                {status !== 'live' && <span className="text-brand">· {TITLES[status]}</span>}
+              </button>
+              <div className="flex items-center gap-1">
+                <h2 className="truncate text-2xl font-bold tracking-tight">{clientName ?? '…'}</h2>
+                {openClient && <ClientMenu client={openClient} onRemoved={() => onClientChange('all')} />}
+              </div>
+            </div>
+          )}
           {status === 'live' && (
-            // Thin coral capsule around the split button: the page's main action, highlighted without a glow.
-            <div className="flex rounded-full bg-brand/[0.08] p-1 ring-1 ring-brand/40">
+            <div className="flex flex-wrap items-center gap-3">
+              {folderView && <NewClientButton onCreated={onClientChange} />}
+              {/* Thin coral capsule around the split button: the page's main action, highlighted without a glow. */}
+              <div className="flex rounded-full bg-brand/[0.08] p-1 ring-1 ring-brand/40">
               <Button variant="scan" onClick={() => onUpload('file')} className="h-10 rounded-r-none pr-3 pl-5 text-[15px]">
                 <CloudUploadIcon className="size-5" /> Subir archivo
               </Button>
@@ -176,6 +228,7 @@ export function ProjectsPanel({ onUpload }: { onUpload: (mode: 'file' | 'code') 
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
+              </div>
             </div>
           )}
         </div>
@@ -185,12 +238,16 @@ export function ProjectsPanel({ onUpload }: { onUpload: (mode: 'file' | 'code') 
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Buscar…"
+            placeholder={client === 'all' ? 'Buscar en todos los enlaces…' : `Buscar en ${clientName ?? 'esta carpeta'}…`}
             className="w-full bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
           />
         </label>
 
         <div className="mt-6 overflow-hidden rounded-2xl border">
+          {folderView ? (
+            <ClientFolders status={status} onOpen={onClientChange} />
+          ) : (
+          <>
           <Table>
             <TableHeader className="bg-muted/50">
               <TableRow className="border-0 hover:bg-transparent">
@@ -247,6 +304,15 @@ export function ProjectsPanel({ onUpload }: { onUpload: (mode: 'file' | 'code') 
                       <FileCodeIcon className="size-4 shrink-0 text-muted-foreground transition-colors group-hover/link:text-brand" />
                       <span className="truncate">{project.url.replace(/^https?:\/\//, '')}</span>
                     </a>
+                    {client === 'all' && project.client && (
+                      <button
+                        type="button"
+                        onClick={() => onClientChange(project.client!.id)}
+                        className="mt-0.5 ml-6 block truncate text-xs text-muted-foreground hover:text-brand"
+                      >
+                        {project.client.name}
+                      </button>
+                    )}
                   </TableCell>
                   <TableCell className="hidden text-sm text-muted-foreground md:table-cell">
                     {formatDate(project.deletedAt ?? project.updatedAt)}
@@ -271,6 +337,7 @@ export function ProjectsPanel({ onUpload }: { onUpload: (mode: 'file' | 'code') 
                         project={project}
                         onOpen={(view) => open(project, view)}
                         onStatus={(to, message) => changeStatus.mutate({ id: project.id, to, message })}
+                        onMove={(clientId, name) => move.mutate({ id: project.id, clientId, name })}
                       />
                     </div>
                   </TableCell>
@@ -278,8 +345,10 @@ export function ProjectsPanel({ onUpload }: { onUpload: (mode: 'file' | 'code') 
               ))}
             </TableBody>
           </Table>
-          {list.data?.items.length === 0 && <EmptyState status={status} searching={!!q} onUpload={() => onUpload('file')} />}
+          {list.data?.items.length === 0 && <EmptyState status={status} searching={!!q} inFolder={client !== 'all'} onUpload={() => onUpload('file')} />}
           {list.isError && <p className="py-10 text-center text-sm text-destructive">{list.error.message}</p>}
+          </>
+          )}
         </div>
       </div>
 
@@ -330,6 +399,16 @@ export function ProjectsPanel({ onUpload }: { onUpload: (mode: 'file' | 'code') 
               <ArchiveRestoreIcon /> Desarchivar
             </Button>
           )}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="sm">
+                <FolderInputIcon /> <span className="hidden sm:inline">Mover a</span>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="center" side="top">
+              <MoveToClientMenu onMove={bulkMove} />
+            </DropdownMenuContent>
+          </DropdownMenu>
           {status === 'deleted' ? (
             <>
               <Button variant="ghost" size="sm" onClick={() => bulkStatus('live', 'restaurado')}>
@@ -387,10 +466,12 @@ function RowMenu({
   project,
   onOpen,
   onStatus,
+  onMove,
 }: {
   project: Project
   onOpen: (view: ActiveDialog['view']) => void
   onStatus: (to: ProjectStatus, message: string) => void
+  onMove: (clientId: string | null, name: string) => void
 }) {
   const openSite = useOpenSite()
   return (
@@ -433,6 +514,7 @@ function RowMenu({
             <DropdownMenuItem onClick={() => onOpen('customize')}>
               <SettingsIcon /> Personalizar
             </DropdownMenuItem>
+            <MoveToClientMenu current={project.client?.id ?? null} onMove={onMove} />
             <DropdownMenuItem asChild>
               <a href={api.downloadUrl(project.id)} download>
                 <DownloadIcon /> Descargar .zip
@@ -592,10 +674,19 @@ function IconAction({ label, onClick, children }: { label: string; onClick: () =
   )
 }
 
-function EmptyState({ status, searching, onUpload }: { status: ProjectStatus; searching: boolean; onUpload: () => void }) {
+function EmptyState({ status, searching, inFolder, onUpload }: { status: ProjectStatus; searching: boolean; inFolder: boolean; onUpload: () => void }) {
   if (searching) return <p className="py-16 text-center text-sm text-muted-foreground">Ningún proyecto coincide con la búsqueda.</p>
   if (status === 'archived') return <p className="py-16 text-center text-sm text-muted-foreground">No hay proyectos archivados.</p>
   if (status === 'deleted') return <p className="py-16 text-center text-sm text-muted-foreground">La papelera está vacía.</p>
+  if (inFolder) {
+    return (
+      <div className="flex flex-col items-center gap-3 py-16 text-center">
+        <CloudUploadIcon className="size-10 text-brand" strokeWidth={1.5} />
+        <p className="text-sm text-muted-foreground">Esta carpeta aún no tiene enlaces. Publica uno aquí o mueve proyectos con «Mover a cliente».</p>
+        <Button onClick={onUpload} className="mt-2 h-10 px-5 font-semibold">Publicar en esta carpeta</Button>
+      </div>
+    )
+  }
   return (
     <div className="flex flex-col items-center gap-3 py-16 text-center">
       <CloudUploadIcon className="size-10 text-brand" strokeWidth={1.5} />

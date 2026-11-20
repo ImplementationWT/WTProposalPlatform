@@ -4,6 +4,7 @@ import { MongoServerError, ObjectId, type Filter } from 'mongodb'
 import { z } from 'zod'
 import { config, RESERVED_NAMES, siteUrl } from './config.js'
 import { dayIn, groupVisits, validTimeZone } from './analytics.js'
+import { clientRef, clientsById, findClient, resolveClient, type ClientRef } from './clients.js'
 import { pageviews, projects, visits, type ProjectDoc, type ProjectStatus } from './db.js'
 import { pendingDomain, provisionDomain, provisioningEnabled, releaseDomain } from './domains.js'
 import { HttpError } from './errors.js'
@@ -43,10 +44,11 @@ const accessSchema = z.discriminatedUnion('mode', [
 
 const TEXT_EXTENSIONS = /\.(html?|css|js|mjs|json|txt|md|svg|xml|webmanifest)$/i
 
-function toDto(p: ProjectDoc) {
+function toDto(p: ProjectDoc, client: ClientRef) {
   return {
     id: p._id.toHexString(),
     name: p.name,
+    client,
     url: siteUrl(p.name),
     status: p.status,
     homepage: p.homepage,
@@ -59,6 +61,9 @@ function toDto(p: ProjectDoc) {
     deletedAt: p.deletedAt ?? null,
   }
 }
+
+/** DTO of a single project, with its client looked up. */
+const dto = async (p: ProjectDoc) => toDto(p, clientRef(await findClient(p.clientId)))
 
 function parseId(id: string): ObjectId {
   if (!ObjectId.isValid(id)) throw new HttpError(404, 'Proyecto no encontrado')
@@ -128,19 +133,32 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
 
   app.get('/api/projects', async (request) => {
     const query = z
-      .object({ status: statusSchema.default('live'), q: z.string().trim().max(100).optional() })
+      .object({
+        status: statusSchema.default('live'),
+        q: z.string().trim().max(100).optional(),
+        // A client's id, "none" for the unfiled ones; omitted = every client.
+        client: z.string().optional(),
+      })
       .parse(request.query)
 
-    const filter: Filter<ProjectDoc> = { status: query.status }
+    // The tab counts follow the client being viewed.
+    const scope: Filter<ProjectDoc> = {}
+    if (query.client === 'none') scope.clientId = { $exists: false }
+    else if (query.client) {
+      if (!ObjectId.isValid(query.client)) throw new HttpError(400, 'Cliente no válido')
+      scope.clientId = new ObjectId(query.client)
+    }
+    const filter: Filter<ProjectDoc> = { ...scope, status: query.status }
     if (query.q) filter.name = { $regex: query.q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' }
 
-    const [items, counts] = await Promise.all([
+    const [items, counts, byId] = await Promise.all([
       projects.find(filter).sort({ updatedAt: -1 }).limit(500).toArray(),
-      projects.aggregate<{ _id: ProjectStatus; n: number }>([{ $group: { _id: '$status', n: { $sum: 1 } } }]).toArray(),
+      projects.aggregate<{ _id: ProjectStatus; n: number }>([{ $match: scope }, { $group: { _id: '$status', n: { $sum: 1 } } }]).toArray(),
+      clientsById(),
     ])
     const countMap = { live: 0, archived: 0, deleted: 0 }
     for (const c of counts) countMap[c._id] = c.n
-    return { items: items.map(toDto), counts: countMap }
+    return { items: items.map((p) => toDto(p, clientRef(p.clientId && byId.get(p.clientId.toHexString())))), counts: countMap }
   })
 
   app.get('/api/projects/name-availability', async (request) => {
@@ -156,6 +174,8 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
     const name = nameSchema.parse(fields.name ?? '')
     if (files.size === 0) throw new HttpError(400, 'Sube un archivo o pega código HTML')
     if (await isNameTaken(name)) throw new HttpError(409, 'Ese nombre ya está en uso')
+    // clientId (panel) or client = name (API; created if new). Optional.
+    const clientId = await resolveClient({ clientId: fields.clientId, client: fields.client })
 
     const _id = new ObjectId()
     const { version, files: list } = await createVersion(_id.toHexString(), files)
@@ -169,6 +189,7 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
       version,
       access: { mode: 'public' },
       domain: pendingDomain(),
+      ...(clientId ? { clientId } : {}),
       createdAt: now,
       updatedAt: now,
     }
@@ -180,7 +201,7 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
       throw err
     }
     provisionDomain(doc)
-    return reply.code(201).send(toDto(doc))
+    return reply.code(201).send(await dto(doc))
   })
 
   // mode=replace swaps every file; mode=add keeps the current ones and adds/overwrites.
@@ -205,16 +226,25 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
       throw new HttpError(409, 'El proyecto cambió mientras subías; vuelve a intentarlo')
     }
     await removeVersion(id, project.version)
-    return toDto(updated)
+    return dto(updated)
   })
 
   app.patch<{ Params: { id: string } }>('/api/projects/:id', async (request) => {
     const project = await getProject(request.params.id)
     const body = z
-      .object({ name: nameSchema.optional(), access: accessSchema.optional(), homepage: z.string().optional() })
+      .object({
+        name: nameSchema.optional(),
+        access: accessSchema.optional(),
+        homepage: z.string().optional(),
+        // Move to a client: clientId (null = no client) or client = name, created if new.
+        clientId: z.string().nullable().optional(),
+        client: z.string().nullable().optional(),
+      })
       .parse(request.body)
 
     const set: Partial<ProjectDoc> = { updatedAt: new Date() }
+    const clientId = await resolveClient(body)
+    const unsetClient = clientId === null
     if (body.name && body.name !== project.name) {
       if (await isNameTaken(body.name, project._id)) throw new HttpError(409, 'Ese nombre ya está en uso')
       set.name = body.name
@@ -229,15 +259,20 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
       if (!project.files.some((f) => f.path === body.homepage)) throw new HttpError(400, 'Ese archivo no existe')
       set.homepage = body.homepage
     }
+    if (clientId) set.clientId = clientId
 
     try {
-      const updated = await projects.findOneAndUpdate({ _id: project._id }, { $set: set }, { returnDocument: 'after' })
+      const updated = await projects.findOneAndUpdate(
+        { _id: project._id },
+        unsetClient ? { $set: set, $unset: { clientId: '' } } : { $set: set },
+        { returnDocument: 'after' },
+      )
       if (!updated) throw new HttpError(404, 'Proyecto no encontrado')
       if (set.name) {
         provisionDomain(updated)
         if (!(await isNameTaken(project.name))) releaseDomain(project.name)
       }
-      return toDto(updated)
+      return dto(updated)
     } catch (err) {
       if (isDuplicateKey(err)) throw new HttpError(409, 'Ese nombre ya está en uso')
       throw err
@@ -256,7 +291,7 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
     if (!updated) throw new HttpError(404, 'Proyecto no encontrado')
     // Retry a failed domain when the site goes back online.
     if (updated.status === 'live' && updated.domain?.status === 'error') provisionDomain(updated)
-    return toDto(updated)
+    return dto(updated)
   })
 
   // Permanent delete; only from the trash so it is always a two-step action.
@@ -293,7 +328,7 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
       { returnDocument: 'after' },
     )
     if (!updated) throw new HttpError(404, 'Proyecto no encontrado')
-    return toDto(updated)
+    return dto(updated)
   })
 
   app.get<{ Params: { id: string } }>('/api/projects/:id/download', async (request, reply) => {
