@@ -5,10 +5,10 @@ import { toast } from 'sonner'
 import { CodeEditor } from '@/components/lazy'
 import { Dropzone } from '@/components/dropzone'
 import { NameField } from '@/components/name-field'
+import { PasswordField } from '@/components/password-field'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { api, type Project } from '@/lib/api'
@@ -204,12 +204,10 @@ export function CustomizeDialog({ project, onClose }: DialogProps) {
               </SelectContent>
             </Select>
             {mode === 'password' && (
-              <Input
-                type="password"
+              <PasswordField
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={setPassword}
                 placeholder={project.access.mode === 'password' ? 'Nueva contraseña (vacío = mantener la actual)' : 'Contraseña (mín. 4 caracteres)'}
-                autoComplete="new-password"
               />
             )}
           </div>
@@ -479,12 +477,10 @@ export function BulkUpdateDialog({ projects, onClose, onDone }: { projects: Proj
               </SelectContent>
             </Select>
             {mode === 'password' && (
-              <Input
-                type="password"
+              <PasswordField
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={setPassword}
                 placeholder={needsPassword ? 'Contraseña para todos (mín. 4 caracteres)' : 'Nueva contraseña (vacío = mantener la de cada uno)'}
-                autoComplete="new-password"
               />
             )}
           </div>
